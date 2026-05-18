@@ -6,6 +6,7 @@ import React, { useEffect, useState, useRef } from 'react';
 import { B } from '../lib/theme.js';
 import { useRouter } from '../lib/router.jsx';
 import { useAuth } from '../lib/AuthContext.jsx';
+import { useMessages } from '../lib/MessagesContext.jsx';
 import { api } from '../lib/api.js';
 import { Icon } from './Icon.jsx';
 import { Avatar, SmithLogo } from './Primitives.jsx';
@@ -13,6 +14,7 @@ import { Avatar, SmithLogo } from './Primitives.jsx';
 export function TopNav({ active }) {
   const { navigate } = useRouter();
   const { user, signOut } = useAuth();
+  const { unread: unreadMessages } = useMessages();
   const [unread, setUnread] = useState(0);
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef(null);
@@ -45,8 +47,8 @@ export function TopNav({ active }) {
     { k: 'profile', label: 'Profile', icon: 'user', to: '/profile' },
     { k: 'connections', label: 'Network', icon: 'users', to: '/network' },
     { k: 'news', label: 'News', icon: 'newspaper', to: '/news' },
-    // Messages are scoped out of v1 — keeping the slot but disabling.
-    { k: 'messages', label: 'Messages', icon: 'message', to: null, disabled: true },
+    { k: 'messages', label: 'Messages', icon: 'message', to: '/messages',
+      badge: unreadMessages || null },
     { k: 'notifications', label: 'Alerts', icon: 'bell', to: '/alerts', badge: unread || null },
   ];
 

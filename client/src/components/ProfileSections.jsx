@@ -72,10 +72,38 @@ export function ProfileHeader({ profile, isMe, onEdit, onConnect, onMessage }) {
               <ConnectButton profile={profile} onConnect={onConnect}/>
             )}
             {!isMe && (
-              <button onClick={onMessage} disabled style={{ ...ghostBtn, opacity: 0.5, cursor: 'not-allowed' }}
-                title="Messaging coming soon">
-                <Icon name="message" size={14}/> Message
-              </button>
+              (() => {
+                const canMessage = profile.connection?.status === 'accepted';
+                return (
+                  <button
+                    onClick={async () => {
+                      if (!canMessage) return;
+                      try {
+                        const { thread_id } = await api.post('/messages/threads', { peer_id: profile.id });
+                        // Use the router from the caller's scope. We don't
+                        // have direct access here, so we set the hash directly
+                        // — onMessage prop is now unused but kept for parents
+                        // that wired it.
+                        window.location.hash = `#/messages/${thread_id}`;
+                        onMessage?.(thread_id);
+                      } catch (e) {
+                        alert(e.data?.error || 'Could not start message thread.');
+                      }
+                    }}
+                    disabled={!canMessage}
+                    style={{
+                      ...ghostBtn,
+                      opacity: canMessage ? 1 : 0.5,
+                      cursor: canMessage ? 'pointer' : 'not-allowed',
+                    }}
+                    title={canMessage
+                      ? `Message ${profile.first_name}`
+                      : 'Connect first to send a message'}
+                  >
+                    <Icon name="message" size={14}/> Message
+                  </button>
+                );
+              })()
             )}
           </div>
         </div>

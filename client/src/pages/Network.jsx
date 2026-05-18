@@ -214,13 +214,22 @@ function ConnectionCard({ tab, card, onView, onChange }) {
         <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
           {tab === 'connections' && (
             <>
-              <button disabled style={{
-                flex: 1, background: 'transparent', border: `1px solid ${B.line}`,
-                color: B.faint, padding: '9px', borderRadius: 100,
-                fontSize: 12, fontWeight: 600,
-                display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-                cursor: 'not-allowed', opacity: 0.6,
-              }} title="Messaging coming soon">
+              <button
+                onClick={async () => {
+                  try {
+                    const { thread_id } = await api.post('/messages/threads', { peer_id: card.id });
+                    window.location.hash = `#/messages/${thread_id}`;
+                  } catch (e) {
+                    alert(e.data?.error || 'Could not start message thread.');
+                  }
+                }}
+                style={{
+                  flex: 1, background: 'transparent', border: `1px solid ${B.line}`,
+                  color: B.text, padding: '9px', borderRadius: 100,
+                  fontSize: 12, fontWeight: 600,
+                  display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                  cursor: 'pointer',
+                }} title={`Message ${card.first_name}`}>
                 <Icon name="message" size={13}/> Message
               </button>
               <button style={{

@@ -21,6 +21,8 @@ import { AlertsPage } from './pages/Alerts.jsx';
 import { NewsPage } from './pages/News.jsx';
 import { NewsSavedPage } from './pages/NewsSaved.jsx';
 import { AdminNewsPage } from './pages/AdminNews.jsx';
+import { MessagesPage } from './pages/Messages.jsx';
+import { MessagesProvider } from './lib/MessagesContext.jsx';
 
 export function App() {
   const { user, booted } = useAuth();
@@ -62,42 +64,53 @@ export function App() {
   if (!user.email_verified) return <ConfirmEmailPage/>;
   if (!user.onboarding_done) return <OnboardingPage/>;
 
-  // Authenticated, verified, onboarded — route!
-  if (path === '/' || path === '/feed') return <FeedPage/>;
-  if (path === '/profile') return <ProfilePage/>;
-  if (path === '/profile/edit') return <EditProfilePage/>;
-  const profIdMatch = match('/profile/:id', path);
-  if (profIdMatch) return <ProfilePage userId={parseInt(profIdMatch.id, 10)}/>;
-  if (path === '/network') return <NetworkPage/>;
-  if (path === '/alerts') return <AlertsPage/>;
-  if (path === '/news') return <NewsPage/>;
-  if (path === '/news/saved') return <NewsSavedPage/>;
-  if (path === '/admin/news') return <AdminNewsPage/>;
-
-  // Hitting an auth page while signed in: bounce to /feed.
-  if (path.startsWith('/auth/')) {
-    setTimeout(() => navigate('/feed', { replace: true }), 0);
-    return <FeedPage/>;
-  }
-
-  // 404
+  // Authenticated, verified, onboarded — route. Wrap the whole authenticated
+  // tree in MessagesProvider so the websocket opens once and the nav badge
+  // updates everywhere.
   return (
-    <div style={{
-      background: B.bg, color: B.text, minHeight: '100vh',
-      display: 'flex', flexDirection: 'column', alignItems: 'center',
-      justifyContent: 'center', gap: 14,
-    }}>
-      <div className="serif" style={{ fontSize: 32, fontWeight: 600, letterSpacing: '-0.02em' }}>
-        Lost your hammer.
-      </div>
-      <div style={{ color: B.dim, fontSize: 14 }}>
-        We can't find <span className="mono">#{path}</span>.
-      </div>
-      <button onClick={() => navigate('/feed')} style={{
-        background: B.text, border: 'none', color: B.surface,
-        padding: '10px 22px', borderRadius: 100, fontSize: 13, fontWeight: 600,
-        cursor: 'pointer', marginTop: 8,
-      }}>Back to the feed</button>
-    </div>
+    <MessagesProvider>
+      {(() => {
+        if (path === '/' || path === '/feed') return <FeedPage/>;
+        if (path === '/profile') return <ProfilePage/>;
+        if (path === '/profile/edit') return <EditProfilePage/>;
+        const profIdMatch = match('/profile/:id', path);
+        if (profIdMatch) return <ProfilePage userId={parseInt(profIdMatch.id, 10)}/>;
+        if (path === '/network') return <NetworkPage/>;
+        if (path === '/alerts') return <AlertsPage/>;
+        if (path === '/news') return <NewsPage/>;
+        if (path === '/news/saved') return <NewsSavedPage/>;
+        if (path === '/admin/news') return <AdminNewsPage/>;
+        if (path === '/messages') return <MessagesPage/>;
+        const msgMatch = match('/messages/:id', path);
+        if (msgMatch) return <MessagesPage threadIdParam={msgMatch.id}/>;
+
+        // Hitting an auth page while signed in: bounce to /feed.
+        if (path.startsWith('/auth/')) {
+          setTimeout(() => navigate('/feed', { replace: true }), 0);
+          return <FeedPage/>;
+        }
+
+        // 404
+        return (
+          <div style={{
+            background: B.bg, color: B.text, minHeight: '100vh',
+            display: 'flex', flexDirection: 'column', alignItems: 'center',
+            justifyContent: 'center', gap: 14,
+          }}>
+            <div className="serif" style={{ fontSize: 32, fontWeight: 600, letterSpacing: '-0.02em' }}>
+              Lost your hammer.
+            </div>
+            <div style={{ color: B.dim, fontSize: 14 }}>
+              We can't find <span className="mono">#{path}</span>.
+            </div>
+            <button onClick={() => navigate('/feed')} style={{
+              background: B.text, border: 'none', color: B.surface,
+              padding: '10px 22px', borderRadius: 100, fontSize: 13, fontWeight: 600,
+              cursor: 'pointer', marginTop: 8,
+            }}>Back to the feed</button>
+          </div>
+        );
+      })()}
+    </MessagesProvider>
   );
 }
