@@ -11,6 +11,8 @@ import postsRouter from './routes/posts.js';
 import miscRouter from './routes/misc.js';
 import newsRouter from './routes/news.js';
 import credentialDocsRouter from './routes/credential-docs.js';
+import messagesRouter from './routes/messages.js';
+import { attachMessagingWS } from './routes/messages-ws.js';
 
 const app = express();
 app.disable('x-powered-by');
@@ -38,6 +40,7 @@ app.use('/api/posts', postsRouter);
 app.use('/api', miscRouter);          // /search, /notifications, /trades
 app.use('/api', newsRouter);          // /news, /news/categories, /admin/news/...
 app.use('/api', credentialDocsRouter); // /credential-docs upload + serve
+app.use('/api/messages', messagesRouter); // /threads, /threads/:id/messages, /unread-count
 
 // 404
 app.use((req, res) => res.status(404).json({ error: 'Not found', path: req.url }));
@@ -55,6 +58,9 @@ const server = app.listen(PORT, () => {
   console.log(`\n🛠  Smith API listening on http://localhost:${PORT}`);
   console.log(`    Health: http://localhost:${PORT}/api/health\n`);
 });
+
+// Messaging websocket — same HTTP server, /api/ws path.
+attachMessagingWS(server);
 
 // Graceful shutdown so docker-compose / CI doesn't hang.
 const shutdown = () => {
