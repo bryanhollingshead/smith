@@ -1,0 +1,115 @@
+/* Smith — Design System (Direction B / "Foreman")
+   Ported from the design handoff. CSS vars match the design tokens 1:1.
+*/
+
+:root {
+  /* Direction B — Foreman (the only direction we ship) */
+  --b-bg: #F5F1E8;
+  --b-surface: #FBF7EE;
+  --b-surface-2: #EBE5D6;
+  --b-line: #D8D0BC;
+  --b-text: #2A1F17;
+  --b-text-dim: #6B5D4D;
+  --b-text-faint: #9A8E7B;
+  --b-accent: #C8731F;
+  --b-accent-soft: #C8731F1A;
+  --b-amber: #B8860B;
+  --b-danger: #A33A2A;
+}
+
+* { box-sizing: border-box; }
+html, body, #root { margin: 0; padding: 0; min-height: 100%; }
+body {
+  font-family: 'Inter Tight', -apple-system, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  background: var(--b-bg);
+  color: var(--b-text);
+  min-height: 100vh;
+}
+
+button { font: inherit; cursor: pointer; }
+button:disabled { cursor: not-allowed; }
+a { color: inherit; }
+
+.mono { font-family: 'IBM Plex Mono', ui-monospace, monospace; }
+.serif { font-family: 'Fraunces', Georgia, serif; font-optical-sizing: auto; }
+
+/* ── Photo placeholders ───────────────────────────────────────────────── */
+.ph {
+  position: relative;
+  overflow: hidden;
+  background: #3a3835;
+  display: flex;
+  align-items: flex-end;
+}
+.ph::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(135deg, transparent 30%, rgba(255,255,255,0.04) 50%, transparent 70%),
+    var(--ph-grad, linear-gradient(135deg, #4a4540 0%, #6b6155 50%, #2d2a26 100%));
+}
+.ph::after {
+  content: var(--ph-label, '"jobsite photo"');
+  position: relative;
+  z-index: 1;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 11px;
+  color: rgba(255,255,255,0.55);
+  padding: 10px 12px;
+  letter-spacing: 0.02em;
+}
+
+/* Photo variants — different "vibes" */
+.ph-concrete  { --ph-grad: linear-gradient(135deg, #8e8a82 0%, #a8a39b 40%, #6b665e 100%); }
+.ph-wood      { --ph-grad: linear-gradient(95deg,  #7a4f2c 0%, #a06b3d 30%, #6b3f1f 60%, #8a5a2f 100%); }
+.ph-steel     { --ph-grad: linear-gradient(135deg, #4a5057 0%, #6b7178 50%, #2d3137 100%); }
+.ph-frame     { --ph-grad: linear-gradient(135deg, #c4a274 0%, #8a6a3f 50%, #4a3520 100%); }
+.ph-roof      { --ph-grad: linear-gradient(135deg, #5a4030 0%, #8a6549 50%, #3a2818 100%); }
+.ph-brick     { --ph-grad: linear-gradient(95deg,  #8a4a3a 0%, #a55c45 40%, #6a3525 100%); }
+.ph-sky       { --ph-grad: linear-gradient(180deg, #6b8db8 0%, #9bb2cf 50%, #d4c8a8 100%); }
+.ph-crew      { --ph-grad: linear-gradient(135deg, #3d4a3a 0%, #6b7560 40%, #2a3328 100%); }
+.ph-blueprint { --ph-grad: linear-gradient(135deg, #1a3a5c 0%, #2a4f78 50%, #14304a 100%); }
+.ph-tile      { --ph-grad: linear-gradient(135deg, #d4ccb8 0%, #b8a98a 50%, #8a7758 100%); }
+.ph-kitchen   { --ph-grad: linear-gradient(135deg, #c8b89a 0%, #8a7758 40%, #5a4830 100%); }
+.ph-workshop  { --ph-grad: linear-gradient(135deg, #3a302a 0%, #5a4a3a 40%, #2a221c 100%); }
+
+/* ── Trade chips reveal years on hover/focus ─────────────────────────── */
+.trade-chip:hover .trade-chip-yrs,
+.trade-chip:focus-within .trade-chip-yrs {
+  max-width: 80px;
+  padding-left: 7px;
+  padding-right: 7px;
+  margin-left: 0;
+  opacity: 1;
+}
+
+/* ── Inputs (used inside AuthShell + EditProfile) ─────────────────────── */
+input, textarea, select {
+  font-family: inherit;
+  color: inherit;
+}
+
+/* No spinner on number inputs */
+input[type=number]::-webkit-outer-spin-button,
+input[type=number]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+/* Scrollbars (webkit) — kept lean */
+.scroll-thin::-webkit-scrollbar { width: 6px; height: 6px; }
+.scroll-thin::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.18); border-radius: 3px; }
+.scroll-thin::-webkit-scrollbar-track { background: transparent; }
+
+/* Subtle focus rings consistent with accent */
+:focus-visible { outline: 2px solid var(--b-accent); outline-offset: 2px; border-radius: 2px; }
+
+/* Animations */
+@keyframes smith-fade-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.fade-in { animation: smith-fade-in 220ms ease both; }

@@ -1,0 +1,34 @@
+# Dependencies
+node_modules/
+*/node_modules/
+
+# Build output
+client/dist/
+server/dist/
+
+# Local env files (secrets)
+.env
+*.env.local
+*.env.development
+*.env.production
+server/.env
+
+# User-uploaded credential docs (not source code)
+server/uploads/
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# Editor junk
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+*.log
+npm-debug.log*
+
+# Lockfile decision — keep package-lock.json (default; commit it)
+# If you ever switch to yarn or pnpm, change this.
