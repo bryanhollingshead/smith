@@ -1,8 +1,12 @@
-// Smith — Seed
+// Smith — Dev seed
 //
-// Loads the same data the design files used for SAMPLE — Marcus Whitfield, his
-// 8 connections, work history, jobsites, posts. Running this twice is safe:
-// it wipes the data tables first (preserving migrations).
+// Rich cast of fictional Salt Lake metro tradespeople for local development.
+// This DEV seed is destructive (wipes app data) and seeds the realistic-looking
+// personas Marcus, Diane, et al. plus the founder account (Bryan Hollingshead).
+//
+// For PRODUCTION seed (just the 4 trade-archetype "Demo:" accounts, idempotent,
+// safe to run against a live DB) see seed-demo.js. The dev seed and the prod
+// seed share zero data — they live separately on purpose.
 
 import 'dotenv/config';
 import { pool, q, tx } from './db.js';
@@ -27,24 +31,30 @@ const CANONICAL_TRADES = [
   { name: 'Stonemasonry',        icon: 'tool' },
 ];
 
-// ── People (mirrors SAMPLE.connections + me) ───────────────────────────────
+// Salt Lake metro locations used across this seed. Spread across the valley so
+// "people in your area" looks like a real region, not one zip code.
+//   Salt Lake City · Sandy · West Jordan · Park City · Provo · Lehi
+//   West Valley City · Ogden · Murray · Cottonwood Heights · Holladay · Heber
+
+// ── People (cast of SLC tradespeople; same character names as before, just relocated) ──
 const PASSWORD = 'framer-2024-mt';   // shared dev password — same for everyone
 
 const PEOPLE = [
   {
     email: 'marcus.whitfield@smith.test', first: 'Marcus', last: 'Whitfield',
-    headline: 'Master Carpenter · Custom Millwork & Framing', location: 'Bozeman, MT',
+    headline: 'Master Carpenter · Custom Millwork & Framing',
+    location: 'Cottonwood Heights, UT',
     avatar_tone: 'wood', cover_kind: 'frame', verified_smith: true, years: 18,
-    union: { name: 'Local 82 — Carpenters', since: '2008' },
+    union: { name: 'Local 184 — Carpenters (Mountain West)', since: '2008' },
     apprentice: { hours: 8400, required: 8000, status: 'Journeyman' },
     insurance: { carrier: 'Liberty Mutual', limit: '$2M GL', verified: true },
-    about: 'Eighteen years building custom homes and millwork across Montana. Apprenticed in timber frame, sharpened on cabinetry, now leading carpentry crews on high-end residential builds.',
+    about: 'Eighteen years building custom homes and millwork across the Wasatch Front. Apprenticed in timber frame, sharpened on cabinetry, now leading carpentry crews on high-end residential builds from Park City to the Avenues.',
     trades: [
       { name: 'Carpentry', years: 18 }, { name: 'Framing', years: 14 },
       { name: 'Custom Millwork', years: 11 }, { name: 'Cabinetry', years: 8 },
     ],
     licenses: [
-      { name: 'MT Contractor License',          number: 'CON-MT-44219', expiration: '2027-03', verified: true },
+      { name: 'UT Contractor License',          number: 'CON-UT-44219', expiration: '2027-03', verified: true },
       { name: 'OSHA 30 — Construction',         number: 'OSH-30-882140', expiration: '2026-08', verified: true },
       { name: 'Lead-Safe Certified Renovator',  number: 'LSC-887421',    expiration: '2027-01', verified: true },
     ],
@@ -57,50 +67,50 @@ const PEOPLE = [
     ],
     work: [
       {
-        company: { name: 'Highline Build Co.', type: 'General Contractor', logo_tone: 'rust' },
+        company: { name: 'Wasatch Build Co.', type: 'General Contractor', logo_tone: 'rust' },
         role: 'Lead Carpenter', from: '2021', to: null, current: true,
         jobsites: [
-          { title: 'Sweetgrass Residence',     kind: 'Custom Home · 4,200 sqft', loc: 'Big Sky, MT', dur: '2023–2024', photo: 'frame', featured: true },
-          { title: 'Beaver Creek Lodge',       kind: 'Hospitality · Renovation', loc: 'Big Sky, MT', dur: '2022–2023', photo: 'wood',  featured: true },
-          { title: '14th & Grand Townhomes',   kind: 'Multi-family · 8 units',   loc: 'Bozeman, MT', dur: '2021–2022', photo: 'brick', featured: false },
+          { title: 'Bonneville Residence',     kind: 'Custom Home · 4,200 sqft', loc: 'Park City, UT',         dur: '2023–2024', photo: 'frame', featured: true },
+          { title: 'Deer Valley Lodge',        kind: 'Hospitality · Renovation', loc: 'Park City, UT',         dur: '2022–2023', photo: 'wood',  featured: true },
+          { title: 'Liberty Wells Townhomes',  kind: 'Multi-family · 8 units',   loc: 'Salt Lake City, UT',    dur: '2021–2022', photo: 'brick', featured: false },
         ],
       },
       {
         company: { name: 'Whitfield Millwork', type: 'Sub · Carpentry', logo_tone: 'wood', claim: true },
         role: 'Owner / Operator', from: '2018', to: '2021', current: false,
         jobsites: [
-          { title: 'Aspen Grove Kitchen',      kind: 'Custom Cabinetry',         loc: 'Bozeman, MT', dur: '2020',      photo: 'kitchen',  featured: true },
-          { title: 'Story Mill Library',       kind: 'Built-ins · Restoration',  loc: 'Bozeman, MT', dur: '2019',      photo: 'workshop', featured: true },
+          { title: 'Sugar House Kitchen',      kind: 'Custom Cabinetry',         loc: 'Salt Lake City, UT',    dur: '2020',      photo: 'kitchen',  featured: true },
+          { title: 'Marmalade Library Restoration', kind: 'Built-ins · Restoration',  loc: 'Salt Lake City, UT',    dur: '2019',      photo: 'workshop', featured: true },
         ],
       },
       {
         company: { name: 'Paramount Construction', type: 'General Contractor', logo_tone: 'steel' },
         role: 'Carpenter', from: '2012', to: '2018', current: false,
         jobsites: [
-          { title: 'Yellowstone Club Phase II', kind: 'Custom Homes',            loc: 'Big Sky, MT', dur: '2015–2018', photo: 'frame', featured: false },
+          { title: 'Empire Pass Phase II',     kind: 'Custom Homes',             loc: 'Park City, UT',         dur: '2015–2018', photo: 'frame', featured: false },
         ],
       },
     ],
   },
-  // Eight connections from SAMPLE.connections — given full but lighter profiles.
-  { email: 'diane.okafor@smith.test',   first: 'Diane',   last: 'Okafor',     headline: 'Project Manager',          location: 'Bozeman, MT',    avatar_tone: 'sage',  cover_kind: 'crew',     trades: [{ name: 'Project Management', years: 12 }, { name: 'General Contracting', years: 8 }] },
-  { email: 'beto.salinas@smith.test',   first: 'Roberto', last: 'Salinas',    headline: 'Master Electrician',        location: 'Belgrade, MT',   avatar_tone: 'rust',  cover_kind: 'workshop', trades: [{ name: 'Electrical', years: 22 }] },
-  { email: 'tasha.coleman@smith.test',  first: 'Tasha',   last: 'Coleman',    headline: 'GC · Owner',               location: 'Livingston, MT', avatar_tone: 'brick', cover_kind: 'frame',    verified_smith: true, trades: [{ name: 'General Contracting', years: 15 }] },
-  { email: 'henrik.lindqvist@smith.test', first: 'Henrik',last: 'Lindqvist',  headline: 'Stonemason',                location: 'Big Sky, MT',    avatar_tone: 'slate', cover_kind: 'steel',    trades: [{ name: 'Stonemasonry', years: 16 }] },
-  { email: 'aiyana.redfeather@smith.test', first: 'Aiyana', last: 'Redfeather', headline: 'Architect · Range Studio', location: 'Bozeman, MT', avatar_tone: 'sage',  cover_kind: 'blueprint',trades: [{ name: 'Project Management', years: 9 }] },
-  { email: 'mac.mckenna@smith.test',    first: 'Frank',   last: 'McKenna',    headline: 'Foreman · Concrete',        location: 'Helena, MT',     avatar_tone: 'steel', cover_kind: 'concrete', trades: [{ name: 'Concrete & Masonry', years: 21 }] },
-  { email: 'yuki.tanaka@smith.test',    first: 'Yuki',    last: 'Tanaka',     headline: 'Tile · Mosaic',             location: 'Bozeman, MT',    avatar_tone: 'sand',  cover_kind: 'tile',     trades: [{ name: 'Tile & Flooring', years: 11 }] },
-  { email: 'wendell.brooks@smith.test', first: 'Wendell', last: 'Brooks',     headline: 'Plumber · Master',          location: 'Belgrade, MT',   avatar_tone: 'rust',  cover_kind: 'kitchen',  trades: [{ name: 'Plumbing', years: 19 }] },
+  // Connections — given fuller-but-lighter profiles, relocated to SLC metro.
+  { email: 'diane.okafor@smith.test',     first: 'Diane',   last: 'Okafor',     headline: 'Project Manager',           location: 'Sugar House, Salt Lake City, UT', avatar_tone: 'sage',  cover_kind: 'crew',     trades: [{ name: 'Project Management', years: 12 }, { name: 'General Contracting', years: 8 }] },
+  { email: 'beto.salinas@smith.test',     first: 'Roberto', last: 'Salinas',    headline: 'Master Electrician',        location: 'West Jordan, UT',                 avatar_tone: 'rust',  cover_kind: 'workshop', trades: [{ name: 'Electrical', years: 22 }] },
+  { email: 'tasha.coleman@smith.test',    first: 'Tasha',   last: 'Coleman',    headline: 'GC · Owner',                location: 'Sandy, UT',                       avatar_tone: 'brick', cover_kind: 'frame',    verified_smith: true, trades: [{ name: 'General Contracting', years: 15 }] },
+  { email: 'henrik.lindqvist@smith.test', first: 'Henrik',  last: 'Lindqvist',  headline: 'Stonemason',                location: 'Heber, UT',                       avatar_tone: 'slate', cover_kind: 'steel',    trades: [{ name: 'Stonemasonry', years: 16 }] },
+  { email: 'aiyana.redfeather@smith.test',first: 'Aiyana',  last: 'Redfeather', headline: 'Architect · Range Studio',  location: 'Salt Lake City, UT',              avatar_tone: 'sage',  cover_kind: 'blueprint',trades: [{ name: 'Project Management', years: 9 }] },
+  { email: 'mac.mckenna@smith.test',      first: 'Frank',   last: 'McKenna',    headline: 'Foreman · Concrete',        location: 'West Valley City, UT',            avatar_tone: 'steel', cover_kind: 'concrete', trades: [{ name: 'Concrete & Masonry', years: 21 }] },
+  { email: 'yuki.tanaka@smith.test',      first: 'Yuki',    last: 'Tanaka',     headline: 'Tile · Mosaic',             location: 'Holladay, UT',                    avatar_tone: 'sand',  cover_kind: 'tile',     trades: [{ name: 'Tile & Flooring', years: 11 }] },
+  { email: 'wendell.brooks@smith.test',   first: 'Wendell', last: 'Brooks',     headline: 'Plumber · Master',          location: 'Murray, UT',                      avatar_tone: 'rust',  cover_kind: 'kitchen',  trades: [{ name: 'Plumbing', years: 19 }] },
 ];
 
 const FEED = [
   // (author email, type, body, photos, tags, milestone, project_name, age in hours)
   { who: 'tasha.coleman@smith.test', type: 'project',
-    body: 'Wrapped framing on the Hyalite cabin today. 28 days from foundation pour. Crew of 6 — proud of every one of them.',
-    photos: ['frame', 'roof'], project_name: 'Hyalite Cabin', age_hours: 2 },
+    body: 'Wrapped framing on the Wasatch cabin today. 28 days from foundation pour. Crew of 6 — proud of every one of them.',
+    photos: ['frame', 'roof'], project_name: 'Wasatch Cabin', age_hours: 2 },
 
   { who: 'beto.salinas@smith.test', type: 'hiring',
-    body: 'Looking for a journeyman electrician to join Salinas Electric — residential work, Bozeman/Belgrade area. DM if interested or know someone.',
+    body: 'Looking for a journeyman electrician to join Salinas Electric — residential work, Salt Lake / West Jordan area. DM if interested or know someone.',
     tags: ['Hiring', 'Journeyman', 'Residential'], age_hours: 5 },
 
   { who: 'henrik.lindqvist@smith.test', type: 'milestone',
@@ -108,13 +118,15 @@ const FEED = [
     photos: ['brick'], milestone: '10,000 hours', age_hours: 24 },
 
   { who: 'diane.okafor@smith.test', type: 'project',
-    body: 'Sweetgrass Residence — final walkthrough today. From breaking ground in May 2023 to handing over the keys. Marcus Whitfield led a hell of a crew.',
-    photos: ['kitchen', 'wood', 'frame'], project_name: 'Sweetgrass Residence', age_hours: 48 },
+    body: 'Bonneville Residence — final walkthrough today. From breaking ground in May 2023 to handing over the keys. Marcus Whitfield led a hell of a crew.',
+    photos: ['kitchen', 'wood', 'frame'], project_name: 'Bonneville Residence', age_hours: 48 },
 ];
 
 // ── Wipe app data (keep migrations) ─────────────────────────────────────────
 async function wipe(c) {
   const tables = [
+    // Messaging (newest, but cascades from users anyway — explicit for clarity)
+    'messages', 'message_participants', 'message_threads',
     'news_saves', 'news_articles', 'news_feeds',
     'notifications', 'mock_emails',
     'post_likes', 'post_comments', 'post_tags', 'post_photos', 'posts',
@@ -128,7 +140,10 @@ async function wipe(c) {
     'trades',
   ];
   for (const t of tables) {
-    await c.query(`TRUNCATE ${t} RESTART IDENTITY CASCADE`);
+    // Tables added by later migrations may not exist yet on older DBs — skip
+    // gracefully so an old database can still be reseeded after migrate.
+    try { await c.query(`TRUNCATE ${t} RESTART IDENTITY CASCADE`); }
+    catch (e) { if (e.code !== '42P01') throw e; /* 42P01 = undefined table */ }
   }
 }
 
@@ -329,13 +344,13 @@ async function main() {
     }
 
     // Seed a handful of people who are NOT connected to Marcus, so the
-    // "Suggestions" tab is populated with same-location candidates.
+    // "Suggestions" tab is populated with same-metro candidates.
     for (const stranger of [
-      { email: 'lila.rojas@smith.test',     first: 'Lila',    last: 'Rojas',    headline: 'Drywaller · Finisher',          location: 'Bozeman, MT' },
-      { email: 'sam.kowalski@smith.test',   first: 'Sam',     last: 'Kowalski', headline: 'HVAC Tech',                     location: 'Bozeman, MT' },
-      { email: 'reggie.dupont@smith.test',  first: 'Reggie',  last: 'Dupont',   headline: 'Roofer · Owner',                location: 'Belgrade, MT' },
-      { email: 'omar.farouk@smith.test',    first: 'Omar',    last: 'Farouk',   headline: 'Glazier · Commercial',          location: 'Bozeman, MT' },
-      { email: 'sarah.becker@smith.test',   first: 'Sarah',   last: 'Becker',   headline: 'Painter · Finishing',           location: 'Livingston, MT' },
+      { email: 'lila.rojas@smith.test',     first: 'Lila',    last: 'Rojas',    headline: 'Drywaller · Finisher',          location: 'Salt Lake City, UT' },
+      { email: 'sam.kowalski@smith.test',   first: 'Sam',     last: 'Kowalski', headline: 'HVAC Tech',                     location: 'Salt Lake City, UT' },
+      { email: 'reggie.dupont@smith.test',  first: 'Reggie',  last: 'Dupont',   headline: 'Roofer · Owner',                location: 'West Jordan, UT' },
+      { email: 'omar.farouk@smith.test',    first: 'Omar',    last: 'Farouk',   headline: 'Glazier · Commercial',          location: 'Salt Lake City, UT' },
+      { email: 'sarah.becker@smith.test',   first: 'Sarah',   last: 'Becker',   headline: 'Painter · Finishing',           location: 'Sandy, UT' },
     ]) {
       await c.query(
         `INSERT INTO users (email, password_hash, email_verified, first_name, last_name,
@@ -349,8 +364,8 @@ async function main() {
     // Two pending requests TO Marcus (so the Pending tab isn't empty).
     // Create two new "stranger" users for this — keeps them out of the connection list.
     for (const stranger of [
-      { email: 'jordan.kemper@smith.test', first: 'Jordan', last: 'Kemper', headline: 'Welder · Structural', location: 'Missoula, MT', avatar_tone: 'steel' },
-      { email: 'priya.shastri@smith.test', first: 'Priya',  last: 'Shastri', headline: 'Civil Engineer',     location: 'Bozeman, MT',  avatar_tone: 'sage' },
+      { email: 'jordan.kemper@smith.test', first: 'Jordan', last: 'Kemper', headline: 'Welder · Structural', location: 'Ogden, UT',  avatar_tone: 'steel' },
+      { email: 'priya.shastri@smith.test', first: 'Priya',  last: 'Shastri', headline: 'Civil Engineer',     location: 'Provo, UT',  avatar_tone: 'sage' },
     ]) {
       const ins = await c.query(
         `INSERT INTO users (email, password_hash, email_verified, first_name, last_name,
@@ -372,6 +387,22 @@ async function main() {
         [me, sid]
       );
     }
+
+    // Bryan Hollingshead — founder account, lives in dev seed only. In prod
+    // Bryan signs up like any other user; this dev entry is so the dev DB
+    // has him present at id 15 (after the strangers above) with admin powers.
+    await c.query(
+      `INSERT INTO users (
+          email, password_hash, email_verified, first_name, last_name,
+          headline, location, avatar_tone, cover_kind, verified_smith,
+          onboarding_done, onboarding_step, is_admin
+        )
+        VALUES ($1,$2,TRUE,$3,$4,$5,$6,$7,$8,TRUE,TRUE,5,TRUE)`,
+      [
+        'bryan.hollingshead@gmail.com', hash, 'Bryan', 'Hollingshead',
+        'Smith — Founder', 'Salt Lake City, UT', 'rust', 'frame',
+      ]
+    );
 
     // Feed posts
     for (const p of FEED) {
@@ -412,7 +443,7 @@ async function main() {
       await c.query(
         `INSERT INTO post_comments (post_id, author_id, body)
            VALUES ($1,$2,$3)`,
-        [allPosts.rows[0].id, me, 'Crew did real work on this one. Hyalite is going to look sharp.']
+        [allPosts.rows[0].id, me, 'Crew did real work on this one. Wasatch is going to look sharp.']
       );
     }
   });
@@ -422,9 +453,16 @@ async function main() {
   // is a no-op.
   await seedDemoArticlesIfEmpty();
 
+  // Also seed the production demo accounts in dev so the dev DB looks
+  // identical to prod from the demos' perspective. seed-demo.js is idempotent
+  // so this is safe.
+  const { seedDemos } = await import('./seed-demo.js');
+  await seedDemos({ silent: true });
+
   console.log(`[seed] done.`);
   console.log(`[seed] sign in with any of:`);
   for (const p of PEOPLE) console.log(`         ${p.email}  /  ${PASSWORD}`);
+  console.log(`         bryan.hollingshead@gmail.com  /  ${PASSWORD}`);
 }
 
 main()
