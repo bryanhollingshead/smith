@@ -1,208 +1,187 @@
-# Smith — SLC + Demo Seed Patch — Apply Instructions
+# Smith — API Spec & Commandment Patch — Apply Instructions
 
 This patch adds:
-1. A new migration (`005_demo_flag.sql`) — adds `users.is_demo` column
-2. A rewritten dev seed (`seed.js`) — SLC-themed cast + Bryan founder account
-3. A new prod-safe demo seed (`seed-demo.js`) — 4 fully-fleshed demo accounts
-4. A `npm run seed-demo` script
-5. A new helper (`demo-gate.js`) — centralized demo-blocking checks
-6. A "Demo" badge on profile pages (frontend file `ProfileSections.jsx`)
+1. **`docs/API_COMMANDMENT.md`** — Smith's architectural constitution: the additive-only API rules
+2. **`docs/api.yaml`** — Full OpenAPI 3.1 spec covering all ~45 endpoints (59 path+method combos)
+3. **`server/src/routes/openapi.js`** — Serves the spec + Swagger UI at `/api/docs`
+4. **`server/src/middleware-version.js`** — Reads `Smith-Version` header (currently unused, plumbed for the future)
+5. **`server/tests/api-shape.sh`** — Smoke test that catches accidental contract drift
 
-It also requires **three small one-line edits** to existing files you have, to
-wire the demo-blocking into your connection and messaging routes. They are
-listed at the bottom of this file.
+Plus **two small edits to existing files** to wire it together.
 
 ## Step 1: Drop files in place
 
-The zip mirrors your `server/` directory structure. Unzip overwrites:
-- `server/migrations/005_demo_flag.sql` (new)
-- `server/src/seed.js` (overwrite)
-- `server/src/seed-demo.js` (new)
-- `server/src/demo-gate.js` (new)
-- `server/package.json` (overwrite — only adds `seed-demo` script)
-- `client/src/components/ProfileSections.jsx` (overwrite — adds Demo badge)
+```bash
+cd ~/Desktop/smith-app
+unzip -o ~/Downloads/smith-fix-api-spec.zip
+```
 
-## Step 2: Apply migration + reseed (dev)
+You should see these 6 new files in the unzip output:
+- `docs/API_COMMANDMENT.md`
+- `docs/api.yaml`
+- `server/src/routes/openapi.js`
+- `server/src/middleware-version.js`
+- `server/tests/api-shape.sh`
+- `server/INSTRUCTIONS.md` (this file)
+
+## Step 2: Edit `server/src/index.js`
+
+Three additions to this file. Open it in your editor.
+
+**(a) Add the new imports near the existing route imports.** Find this block at the top:
+
+```js
+import messagesRouter from './routes/messages.js';
+import { attachMessagingWS } from './routes/messages-ws.js';
+```
+
+Add these two lines immediately after:
+
+```js
+import openapiRouter from './routes/openapi.js';
+import { readClientVersion } from './middleware-version.js';
+```
+
+**(b) Wire the version middleware in BEFORE any route handlers.** Find where the JSON body parser is registered:
+
+```js
+app.use(express.json({ limit: '1mb' }));
+```
+
+Add this line right after it:
+
+```js
+app.use(readClientVersion);
+```
+
+**(c) Mount the OpenAPI router alongside the existing routes.** Find:
+
+```js
+app.use('/api', credentialDocsRouter);
+app.use('/api/messages', messagesRouter);
+```
+
+Add this line right after them:
+
+```js
+app.use('/api', openapiRouter); // serves /openapi.yaml, /openapi.json, /docs
+```
+
+That's all for `index.js` — three additions, none touching existing lines.
+
+## Step 3: Edit `client/src/lib/api.js`
+
+We want every outbound request from the web client to carry the `Smith-Version` header. The current build's date is `2026-05-19`.
+
+Open `client/src/lib/api.js`. Find the `fetch(...)` call inside the helper that does HTTP requests. It'll look something like:
+
+```js
+const r = await fetch(url, {
+  method,
+  headers: {
+    'Content-Type': 'application/json',
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  },
+  body: body ? JSON.stringify(body) : undefined,
+});
+```
+
+Add a Smith-Version header into the headers object:
+
+```js
+const r = await fetch(url, {
+  method,
+  headers: {
+    'Content-Type': 'application/json',
+    'Smith-Version': '2026-05-19',
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  },
+  body: body ? JSON.stringify(body) : undefined,
+});
+```
+
+If your `api.js` has multiple fetch calls (e.g. one for JSON, one for multipart upload), add the header to each. The version string `2026-05-19` is today's date — we update this when we ship a client build locked to a specific API generation. For now, "today" is fine.
+
+**Note:** This header is currently informational. The server reads it into `req.smithVersion` but no route gates behavior on it. The plumbing is in place for when (if) we ever need it.
+
+## Step 4: Restart the server
 
 ```bash
 cd ~/Desktop/smith-app/server
-npm run reset
-```
-
-This:
-- Drops all tables, re-runs all 6 migrations (including the new `005_demo_flag.sql`)
-- Reseeds with the SLC cast
-- Auto-runs `seedDemos()` so the demo accounts exist in dev too
-
-You should see:
-```
-[migrate] applied 6 file(s)
-[seed] done.
-[seed-demo] 4 created, 0 already present.
-```
-
-## Step 3: Verify production demo seed works idempotently
-
-```bash
-npm run seed-demo
-```
-
-Should print `[seed-demo] 0 created, 4 already present.` — that's the
-idempotency confirmation. Safe to run against a live prod DB; will never
-overwrite a real user account.
-
-## Step 4: Three small edits to wire in demo-blocking
-
-These are the ONLY edits to existing route files. Each is a 1-2 line addition.
-
-### Edit 1: `server/src/routes/connections.js`
-
-Find the POST handler for `/request` (where someone sends a connection
-request). Near the top of the handler, after `req.userId` is resolved and
-`target_id` is read out of the body, add this check BEFORE the existing
-validations:
-
-```js
-import { eitherIsDemo } from '../demo-gate.js';   // add to imports at top
-
-// ... inside the POST /request handler, after target_id is parsed:
-if (await eitherIsDemo(req.userId, target_id)) {
-  return res.status(403).json({ error: 'Demo profiles cannot be connected to.' });
-}
-```
-
-### Edit 2: `server/src/routes/messages.js`
-
-Two spots in this file. Add the import at the top:
-
-```js
-import { isDemo, eitherIsDemo } from '../demo-gate.js';
-```
-
-In the `POST /threads` handler (create-or-fetch thread), add right after
-`peerId` is parsed and before `areConnected` is checked:
-
-```js
-if (await eitherIsDemo(req.userId, peerId)) {
-  return res.status(403).json({ error: 'Demo profiles cannot be messaged.' });
-}
-```
-
-In the `POST /threads/:id/messages` handler (send a message), inside the
-existing block where we re-check connection at send time, change the
-existing `areConnected` line so it ALSO blocks if peer is a demo. Find:
-
-```js
-if (peerId && !(await areConnected(req.userId, peerId))) {
-  return res.status(403).json({ error: 'You can only message your connections.' });
-}
-```
-
-Replace with:
-
-```js
-if (peerId && (await isDemo(peerId))) {
-  return res.status(403).json({ error: 'Demo profiles cannot be messaged.' });
-}
-if (peerId && !(await areConnected(req.userId, peerId))) {
-  return res.status(403).json({ error: 'You can only message your connections.' });
-}
-```
-
-### Edit 3: `server/src/routes/auth.js`
-
-In the `POST /signin` handler, after the password is verified and BEFORE
-the JWT is signed, add a check that refuses to sign in as a demo account:
-
-```js
-// After password check passes:
-if (user.is_demo) {
-  return res.status(403).json({ error: 'Demo accounts cannot be signed into.' });
-}
-```
-
-The `is_demo` field will be on the `user` row you loaded from the DB.
-If your existing code does `SELECT id, password_hash, ...` and doesn't
-include `is_demo`, add it to the SELECT list.
-
-### Edit 4: Backend — expose `is_demo` on profiles
-
-In `server/src/routes/profiles.js`, in the `loadProfile()` function (or
-wherever a single profile is loaded), make sure `is_demo` is on the
-returned object. If your SELECT looks like:
-
-```js
-SELECT id, first_name, last_name, headline, location, ... FROM users ...
-```
-
-Add `is_demo` to the column list. Then in whatever object you return, include:
-
-```js
-is_demo: row.is_demo,
-```
-
-Same for any endpoints that return a *list* of users (suggestions, search,
-connection cards) — add `is_demo` to the SELECT and pass it through to the
-JSON response.
-
-### Edit 5: Frontend — show the Demo badge
-
-A new component `client/src/components/DemoBadge.jsx` is included in the
-zip. Add it in three places:
-
-**(a) Profile page header** — in `client/src/components/ProfileSections.jsx`,
-import the badge at the top:
-
-```js
-import { DemoBadge } from './DemoBadge.jsx';
-```
-
-In `ProfileHeader`, right next to where the user's name is rendered, add:
-
-```jsx
-{profile.is_demo && <DemoBadge size="lg"/>}
-```
-
-(Spot it in your existing JSX — name renders something like `<h1>{profile.first_name} {profile.last_name}</h1>`. Add the badge inline after.)
-
-**(b) Suggestion / connection cards** — in `client/src/pages/Network.jsx`,
-import:
-
-```js
-import { DemoBadge } from '../components/DemoBadge.jsx';
-```
-
-In the card render where the name is shown, add:
-
-```jsx
-{card.is_demo && <DemoBadge/>}
-```
-
-**(c) New-message picker** — in `client/src/pages/Messages.jsx`'s
-`NewMessagePicker` component, alongside the connection name. Since demos
-aren't connections, they won't appear here for real users — but on the
-profile page where someone might click "Message" on a demo, the disabled
-button + badge tells the right story.
-
-## Step 5: Restart your server and test
-
-```bash
-# In your server terminal: Ctrl+C, then
+# Ctrl+C the running server, then:
 npm run dev
 ```
 
-Things to verify:
-- Sign in as `marcus.whitfield@smith.test` — should work, location now says SLC
-- Sign in as `bryan.hollingshead@gmail.com` (password `framer-2024-mt`) — should work
-- Visit Network → Suggestions — should include the 4 demo accounts with a "Demo" badge
-- Try to click "Connect" or "Message" on a demo from another account — should fail with a 403 from the backend
-- Try to sign in directly as `demo-carpenter@smith.app` — should be refused
+Watch for any startup errors — most likely culprit is a typo in the index.js edits.
 
-## Step 6: Commit
+## Step 5: Visit the API docs
+
+Open your browser to:
+
+```
+http://localhost:5173/api/docs
+```
+
+(Or directly: `http://localhost:4000/api/docs`)
+
+You should see a Swagger UI with **Smith API** as the title and every endpoint listed by tag (Auth, Profiles, Connections, etc.). Click any endpoint to see the request/response schema. The "Authorize" button in the top right lets you paste a JWT to test authenticated endpoints right from the browser.
+
+## Step 6: Run the smoke test
+
+```bash
+cd ~/Desktop/smith-app/server
+bash tests/api-shape.sh
+```
+
+You should see 10 green checkmarks ending in:
+
+```
+🎉  All 10 API shape checks pass.
+```
+
+This test will become more important over time. As you add endpoints, add one more check here — if the response shape ever drifts from what we documented, the test fails loudly.
+
+## Step 7: Read the commandment
+
+This is genuinely worth 5 minutes of your time:
+
+```bash
+open docs/API_COMMANDMENT.md
+```
+
+When you bring on other developers (or come back to this codebase yourself in 6 months), this is the first thing to read. It codifies the additive-only discipline we've agreed to.
+
+## Step 8: Commit
 
 ```bash
 cd ~/Desktop/smith-app
 git add .
-git commit -m "SLC seed reorient + production demo accounts (is_demo)"
+git commit -m "API: OpenAPI spec + additive-only commandment + docs UI"
 git push
 ```
+
+---
+
+## What this does NOT do
+
+- Does NOT move any endpoints. No path versioning, no URL changes.
+- Does NOT change any existing endpoint behavior. Backward-compatible in every direction.
+- Does NOT install any npm dependencies. Swagger UI is loaded from a CDN.
+- Does NOT add any new auth/authorization requirements.
+
+## What this enables
+
+- **Single source of truth** for the API contract (`docs/api.yaml`)
+- **Browsable documentation** at `/api/docs` — share that URL with future devs
+- **The additive-only commandment** is codified, not just a verbal agreement
+- **Version plumbing** in place — when we want to gate behavior on client build dates later, it's a one-liner per route
+- **Drift detection** via the smoke test — catches accidental breaks before they ship
+
+---
+
+## Future enhancements (defer until needed)
+
+- Swap Swagger UI for **Redoc** or **Scalar** when you want sleeker docs (10-line change)
+- Add `js-yaml` as a dep so `/api/openapi.json` works (only if a tool wants JSON)
+- Add CI check that runs `api-shape.sh` on every push
+- Generate a TypeScript client from the spec when mobile dev starts (`openapi-typescript-codegen` or similar)

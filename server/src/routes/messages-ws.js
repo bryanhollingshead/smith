@@ -11,6 +11,10 @@
 // Heartbeats: every 30s we ping each socket; if it doesn't pong by the next
 // interval, we close it. This catches dead connections (laptop closed, wifi
 // drop) that don't surface as TCP errors.
+//
+// Shutdown: on SIGINT/SIGTERM we clear the heartbeat timer + force-close every
+// open socket so the Node process exits promptly instead of waiting for the
+// last client to disconnect on its own.
 
 import { WebSocketServer } from 'ws';
 import { verifyToken } from '../auth-utils.js';
@@ -18,8 +22,13 @@ import { verifyToken } from '../auth-utils.js';
 // userId → Set<ws>. A user can have multiple tabs/devices open.
 const sockets = new Map();
 
+// Module-level handles so the shutdown hook can clean them up.
+let _wss = null;
+let _heartbeat = null;
+
 export function attachMessagingWS(httpServer) {
   const wss = new WebSocketServer({ noServer: true });
+  _wss = wss;
 
   // Handle upgrade requests on /api/ws. We do auth here, BEFORE accepting
   // the websocket, so unauthenticated connections never complete the handshake.
@@ -73,7 +82,9 @@ export function attachMessagingWS(httpServer) {
   });
 
   // Heartbeat loop. Closes sockets that don't pong back.
-  const interval = setInterval(() => {
+  // `unref()` lets Node exit if this timer is the only thing keeping the
+  // event loop alive — critical for clean shutdown.
+  _heartbeat = setInterval(() => {
     for (const set of sockets.values()) {
       for (const ws of set) {
         if (!ws.isAlive) { ws.terminate(); continue; }
@@ -82,8 +93,11 @@ export function attachMessagingWS(httpServer) {
       }
     }
   }, 30000);
+  _heartbeat.unref();
 
-  wss.on('close', () => clearInterval(interval));
+  wss.on('close', () => {
+    if (_heartbeat) { clearInterval(_heartbeat); _heartbeat = null; }
+  });
 
   return wss;
 }
@@ -97,4 +111,17 @@ export function broadcastToUser(userId, payload) {
   for (const ws of set) {
     if (ws.readyState === 1 /* OPEN */) ws.send(str);
   }
+}
+
+// Cleanly tear down all sockets + the heartbeat timer. Called from index.js
+// on SIGINT/SIGTERM so the process can exit promptly.
+export function closeMessagingWS() {
+  if (_heartbeat) { clearInterval(_heartbeat); _heartbeat = null; }
+  for (const set of sockets.values()) {
+    for (const ws of set) {
+      try { ws.terminate(); } catch { /* best effort */ }
+    }
+  }
+  sockets.clear();
+  if (_wss) { try { _wss.close(); } catch { /* best effort */ } _wss = null; }
 }
