@@ -14,6 +14,8 @@ import { api } from '../lib/api.js';
 import { useRouter } from '../lib/router.jsx';
 import { useAuth } from '../lib/AuthContext.jsx';
 import { suggestSkills } from '../lib/trade-skills.js';
+import { PhotoUpload } from '../components/PhotoUpload.jsx';
+import { SmithAvatar } from '../components/SmithAvatar.jsx';
 
 const TONES = ['wood', 'rust', 'steel', 'brick', 'sage', 'sand', 'slate', 'cream'];
 const COVER_KINDS = ['frame', 'wood', 'concrete', 'roof', 'brick', 'crew', 'workshop', 'kitchen', 'tile', 'blueprint', 'sky', 'steel'];
@@ -66,6 +68,17 @@ export function EditProfilePage() {
     await refresh();
   };
 
+  // Photo uploads update local state immediately for snappy feedback. They
+  // also call onSaved so the rest of the app (TopNav avatar, etc.) refetches.
+  const handleAvatarChanged = (urls) => {
+    setProfile(p => p ? { ...p, avatar_urls: urls } : p);
+    handleSaved();
+  };
+  const handleCoverChanged = (urls) => {
+    setProfile(p => p ? { ...p, cover_urls: urls } : p);
+    handleSaved();
+  };
+
   if (!profile) return (
     <div style={{ background: B.bg, minHeight: '100vh' }}>
       <TopNav active="profile"/>
@@ -110,7 +123,14 @@ export function EditProfilePage() {
           ))}
         </div>
 
-        {tab === 'header' && <HeaderTab profile={profile} onSaved={handleSaved}/>}
+        {tab === 'header' && (
+          <HeaderTab
+            profile={profile}
+            onSaved={handleSaved}
+            onAvatarChanged={handleAvatarChanged}
+            onCoverChanged={handleCoverChanged}
+          />
+        )}
         {tab === 'trades' && <TradesAndSkillsTab profile={profile} onSaved={handleSaved}/>}
         {tab === 'work' && <WorkHistoryTab profile={profile} onSaved={handleSaved} focus={focus}/>}
         {tab === 'credentials' && <CredentialsTab profile={profile} onSaved={handleSaved}/>}
@@ -120,7 +140,7 @@ export function EditProfilePage() {
 }
 
 // ── Tab: Header & about ───────────────────────────────────────────────
-function HeaderTab({ profile, onSaved }) {
+function HeaderTab({ profile, onSaved, onAvatarChanged, onCoverChanged }) {
   const [first, setFirst] = useState(profile.first_name || '');
   const [last, setLast] = useState(profile.last_name || '');
   const [headline, setHeadline] = useState(profile.headline || '');
@@ -150,16 +170,74 @@ function HeaderTab({ profile, onSaved }) {
     }
   };
 
+  const initials = ((first[0] || '') + (last[0] || '')).toUpperCase() || profile.initials;
+  const hasAvatarPhoto = !!profile.avatar_urls;
+  const hasCoverPhoto = !!profile.cover_urls;
+
   return (
     <Card>
-      {/* Cover preview */}
-      <div style={{ marginBottom: 22, borderRadius: 4, overflow: 'hidden', border: `1px solid ${B.line}` }}>
-        <Photo kind={cover} label="cover" height={140}/>
-        <div style={{ background: B.bg, padding: '14px 18px' }}>
-          <div style={{ color: B.faint, fontSize: 11, fontStyle: 'italic', marginBottom: 8 }}>
-            Cover photo
-          </div>
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+      {/* ── Profile photo + cover upload ─────────────────────────────────
+          Two upload widgets side-by-side. The PhotoUpload component handles
+          the upload mechanics (progress, errors, delete); we just supply
+          the preview render. */}
+      <div style={{
+        display: 'flex', gap: 32, marginBottom: 28, alignItems: 'flex-start',
+        flexWrap: 'wrap',
+      }}>
+        {/* Avatar */}
+        <div style={{ minWidth: 200 }}>
+          <Label>Profile photo</Label>
+          <PhotoUpload
+            kind="avatar"
+            currentUrls={profile.avatar_urls}
+            onChange={onAvatarChanged}
+            label={hasAvatarPhoto ? 'Replace photo' : 'Upload photo'}
+            preview={(urls) => (
+              <div style={{ marginBottom: 4 }}>
+                <SmithAvatar
+                  urls={urls}
+                  initials={initials}
+                  tone={tone}
+                  size={104}
+                />
+              </div>
+            )}
+          />
+        </div>
+
+        {/* Cover */}
+        <div style={{ flex: 1, minWidth: 280 }}>
+          <Label>Cover photo</Label>
+          <PhotoUpload
+            kind="cover"
+            currentUrls={profile.cover_urls}
+            onChange={onCoverChanged}
+            label={hasCoverPhoto ? 'Replace cover' : 'Upload cover'}
+            preview={(urls) => (
+              <div style={{
+                width: '100%', height: 132, marginBottom: 4,
+                borderRadius: 4, overflow: 'hidden',
+                border: `1px solid ${B.line}`,
+                background: urls?.medium
+                  ? `center/cover url("${urls.medium}") no-repeat`
+                  : B.surface2,
+                position: 'relative',
+              }}>
+                {!urls && (
+                  // Fall back to the gradient placeholder using the chosen cover kind.
+                  <Photo kind={cover} label="" height={130}/>
+                )}
+              </div>
+            )}
+          />
+        </div>
+      </div>
+
+      {/* ── Cover-kind picker (used only when no cover photo uploaded) ─── */}
+      {!hasCoverPhoto && (
+        <div style={{ marginBottom: 22 }}>
+          <Label>Cover style (used until you upload a photo)</Label>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 4 }}>
             {COVER_KINDS.map(k => (
               <button key={k} onClick={() => setCover(k)} style={{
                 width: 36, height: 36, padding: 0, border: 'none',
@@ -171,12 +249,12 @@ function HeaderTab({ profile, onSaved }) {
             ))}
           </div>
         </div>
-      </div>
+      )}
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: 18, marginBottom: 22 }}>
-        <Avatar initials={(first[0] || '') + (last[0] || '')} size={64} tone={tone}/>
-        <div style={{ flex: 1 }}>
-          <Label>Avatar tone</Label>
+      {/* ── Avatar-tone picker (used only when no avatar photo uploaded) ── */}
+      {!hasAvatarPhoto && (
+        <div style={{ marginBottom: 22 }}>
+          <Label>Avatar tone (used until you upload a photo)</Label>
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 4 }}>
             {TONES.map(t => (
               <button key={t} onClick={() => setTone(t)} style={{
@@ -189,7 +267,7 @@ function HeaderTab({ profile, onSaved }) {
             ))}
           </div>
         </div>
-      </div>
+      )}
 
       <Row>
         <Field label="First name">
@@ -213,7 +291,7 @@ function HeaderTab({ profile, onSaved }) {
           <TextInput
             value={location}
             onChange={e => setLocation(e.target.value)}
-            placeholder="e.g. Bozeman, MT"
+            placeholder="e.g. Salt Lake City, UT"
           />
         </Field>
         <Field label="Years experience">
@@ -510,13 +588,9 @@ function WorkHistoryTab({ profile, onSaved, focus }) {
   // Deep-link handler: scroll + pulse + auto-open the right control.
   useEffect(() => {
     if (focus !== 'add-company') return;
-    // The button might be hidden when `adding` is true. Force it open so the
-    // user lands on the form immediately, which is what they came here for.
     setAdding(true);
-    // Scroll the form area into view after a tick (it needs to mount first).
     const t = setTimeout(() => {
       addCompanyRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      // Apply pulse class for ~3s, then remove.
       const el = addCompanyRef.current;
       if (!el) return;
       el.classList.add('pulse');
@@ -525,8 +599,6 @@ function WorkHistoryTab({ profile, onSaved, focus }) {
     return () => clearTimeout(t);
   }, [focus]);
 
-  // For the newest-company case, we pass focus down to CompanyEditor. Only
-  // the FIRST (most recent) company gets focused; the rest just render normally.
   const newestCompanyId = profile.work_history[0]?.id;
 
   return (
@@ -587,12 +659,9 @@ function CompanyEditor({ co, onChanged, focusAddJobsite, featuredCount, featured
   const [addingSite, setAddingSite] = useState(false);
   const addJobsiteRef = React.useRef(null);
 
-  // Deep-link: if this is the company the user came here to act on, open
-  // the expansion and pulse the add-jobsite affordance.
   useEffect(() => {
     if (!focusAddJobsite) return;
     setOpen(true);
-    // Wait for the expansion to mount, then scroll/pulse the add control.
     const t = setTimeout(() => {
       addJobsiteRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
       const el = addJobsiteRef.current;
@@ -609,7 +678,6 @@ function CompanyEditor({ co, onChanged, focusAddJobsite, featuredCount, featured
     onChanged?.();
   };
 
-  // Toggle featured on an existing jobsite. Block if we'd exceed the cap.
   const toggleFeatured = async (js) => {
     const next = !js.is_featured;
     if (next && featuredCount >= featuredCap) {
@@ -686,8 +754,6 @@ function CompanyEditor({ co, onChanged, focusAddJobsite, featuredCount, featured
                   {js.kind}{js.location ? ` · ${js.location}` : ''}{js.duration ? ` · ${js.duration}` : ''}
                 </div>
               </div>
-              {/* Featured-toggle star: filled when featured, outline otherwise.
-                  Disabled visually when at cap and not currently featured. */}
               <button
                 onClick={() => toggleFeatured(js)}
                 title={js.is_featured
@@ -740,18 +806,10 @@ function CompanyEditor({ co, onChanged, focusAddJobsite, featuredCount, featured
 }
 
 function AddCompanyForm({ onCancel, onAdded }) {
-  // Two states a user can be in:
-  //   - "search" mode: typing to find an existing company. We hit /companies?search=
-  //     on every keystroke (debounced) and show matches in a dropdown. Picking
-  //     one moves the user to "selected" mode.
-  //   - "create" mode: no match found / user wants a new one. They get the
-  //     full set of company fields (name + type) and we'll create it on submit.
-  //
-  // In both modes the user fills in role/years (their tenure at the company).
   const [name, setName] = useState('');
-  const [picked, setPicked] = useState(null); // { id, name, type, claimed } when chosen from results
+  const [picked, setPicked] = useState(null);
   const [createNew, setCreateNew] = useState(false);
-  const [matches, setMatches] = useState(null); // null = haven't searched, [] = no matches
+  const [matches, setMatches] = useState(null);
   const [searching, setSearching] = useState(false);
   const [showDropdown, setShowDropdown] = useState(false);
 
@@ -763,8 +821,6 @@ function AddCompanyForm({ onCancel, onAdded }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
 
-  // Debounced search on the company name field. Skip when the user has already
-  // picked a result or chosen "create new" — they don't need the dropdown then.
   useEffect(() => {
     if (picked || createNew) { setMatches(null); return; }
     const term = name.trim();
@@ -810,7 +866,6 @@ function AddCompanyForm({ onCancel, onAdded }) {
     setBusy(true);
     setError(null);
     try {
-      // If we picked an existing company, reuse it. Otherwise create one.
       let companyId = picked?.id;
       if (!companyId) {
         const { company } = await api.post('/companies', {
@@ -831,7 +886,6 @@ function AddCompanyForm({ onCancel, onAdded }) {
     } finally { setBusy(false); }
   };
 
-  // Are we showing the dropdown of matches?
   const dropdownOpen = showDropdown && !picked && !createNew &&
     name.trim().length >= 2 && (searching || matches !== null);
 
@@ -849,15 +903,13 @@ function AddCompanyForm({ onCancel, onAdded }) {
           <TextInput
             value={name}
             onChange={e => {
-              // Typing here means the user wants to search again. If they had
-              // previously picked or chosen "create new", reset that state.
               setName(e.target.value);
               if (picked) setPicked(null);
               if (createNew) setCreateNew(false);
               setShowDropdown(true);
             }}
             onFocus={() => setShowDropdown(true)}
-            placeholder="e.g. Highline Build Co."
+            placeholder="e.g. Wasatch Build Co."
             disabled={!!picked}
             style={picked ? { background: B.bg, borderColor: B.accent } : {}}
           />
@@ -943,8 +995,6 @@ function AddCompanyForm({ onCancel, onAdded }) {
         </div>
       </Field>
 
-      {/* Type field is only relevant when creating a new company. When picking
-          an existing one we use whatever type that company has. */}
       {(createNew || (!picked && name.trim().length >= 2 && matches?.length === 0)) && !picked && (
         <Field label="Company type (we'll create this company)">
           <select value={type} onChange={e => setType(e.target.value)} style={inputStyle}>
@@ -1042,14 +1092,14 @@ function AddJobsiteForm({ workId, onCancel, onAdded, featuredCount = 0, featured
       background: B.bg, border: `1px solid ${B.line}`, borderRadius: 4,
     }} className="fade-in">
       <Field label="Jobsite name">
-        <TextInput value={title} onChange={e => setTitle(e.target.value)} placeholder="e.g. Sweetgrass Residence"/>
+        <TextInput value={title} onChange={e => setTitle(e.target.value)} placeholder="e.g. Bonneville Residence"/>
       </Field>
       <Row>
         <Field label="Kind">
           <TextInput value={kind} onChange={e => setKind(e.target.value)} placeholder="Custom Home · 4,200 sqft"/>
         </Field>
         <Field label="Location">
-          <TextInput value={location} onChange={e => setLocation(e.target.value)} placeholder="Big Sky, MT"/>
+          <TextInput value={location} onChange={e => setLocation(e.target.value)} placeholder="Park City, UT"/>
         </Field>
       </Row>
       <Field label="Duration">
@@ -1110,8 +1160,6 @@ function CredentialsTab({ profile, onSaved }) {
   const [status, setStatus] = useState(profile.apprentice?.status || 'Apprentice');
   const [carrier, setCarrier] = useState(profile.insurance?.carrier || '');
   const [limit, setLimit] = useState(profile.insurance?.limit || '');
-  // Insurance doc + share. We track these separately from the rest of the
-  // summary form because uploading a doc is a 2-step API dance (upload → patch).
   const [insSharePublic, setInsSharePublic] = useState(!!profile.insurance?.share_public);
   const [insDocUrl, setInsDocUrl] = useState(profile.insurance?.doc_url || null);
   const [insHasDoc, setInsHasDoc] = useState(!!profile.insurance?.has_doc);
@@ -1138,9 +1186,6 @@ function CredentialsTab({ profile, onSaved }) {
     } finally { setBusy(false); }
   };
 
-  // Insurance doc upload — separate from saveSummary so the user gets
-  // immediate feedback (and we don't lose the file if they didn't yet click
-  // Save changes).
   const uploadInsuranceDoc = async (file) => {
     const fd = new FormData();
     fd.append('file', file);
@@ -1211,7 +1256,7 @@ function CredentialsTab({ profile, onSaved }) {
         <SectionTitle title="Union, apprenticeship, insurance"/>
         <Row>
           <Field label="Union">
-            <TextInput value={unionName} onChange={e => setUnionName(e.target.value)} placeholder="e.g. Local 82 — Carpenters"/>
+            <TextInput value={unionName} onChange={e => setUnionName(e.target.value)} placeholder="e.g. Local 184 — Carpenters"/>
           </Field>
           <Field label="Member since">
             <TextInput value={unionSince} onChange={e => setUnionSince(e.target.value)} placeholder="2008"/>
@@ -1239,8 +1284,6 @@ function CredentialsTab({ profile, onSaved }) {
           </Field>
         </Row>
 
-        {/* Insurance COI — file + share toggle. Lives next to carrier/limit since
-            it's the same conceptual block. */}
         <div style={{
           marginTop: 10, padding: 14,
           background: B.bg, border: `1px solid ${B.line}`, borderRadius: 4,
@@ -1264,7 +1307,6 @@ function CredentialsTab({ profile, onSaved }) {
   );
 }
 
-// ── License row in the editor ──────────────────────────────────────────
 function LicenseRow({ license, onRemove, onChange }) {
   const [sharePublic, setSharePublic] = useState(!!license.share_public);
   const [hasDoc, setHasDoc] = useState(!!license.has_doc);
@@ -1340,10 +1382,6 @@ function LicenseRow({ license, onRemove, onChange }) {
   );
 }
 
-// ── Reusable doc attachment ────────────────────────────────────────────
-// Three states:
-//   - no doc: show upload-file button
-//   - has doc: show "view" link, "replace", "remove", and the share toggle
 function DocAttachment({ hasDoc, docUrl, sharePublic, onSharePublicChange, onUpload, onRemove }) {
   const fileRef = React.useRef(null);
   const [uploading, setUploading] = useState(false);
@@ -1440,11 +1478,8 @@ function AddLicenseForm({ onCancel, onAdded }) {
   const [name, setName] = useState('');
   const [number, setNumber] = useState('');
   const [exp, setExp] = useState('');
-  // Optional doc attached during creation. We upload immediately so the file
-  // exists on disk before the license row is created; the resulting filename
-  // gets passed in the POST body.
-  const [pendingFile, setPendingFile] = useState(null); // File object
-  const [pendingFilename, setPendingFilename] = useState(null); // filename after upload
+  const [pendingFile, setPendingFile] = useState(null);
+  const [pendingFilename, setPendingFilename] = useState(null);
   const [pendingMime, setPendingMime] = useState(null);
   const [sharePublic, setSharePublic] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -1499,11 +1534,11 @@ function AddLicenseForm({ onCancel, onAdded }) {
       background: B.surface, border: `1px solid ${B.line}`, borderRadius: 4,
     }} className="fade-in">
       <Field label="Name">
-        <TextInput value={name} onChange={e => setName(e.target.value)} placeholder="e.g. MT Contractor License"/>
+        <TextInput value={name} onChange={e => setName(e.target.value)} placeholder="e.g. UT Contractor License"/>
       </Field>
       <Row>
         <Field label="Number">
-          <TextInput value={number} onChange={e => setNumber(e.target.value)} placeholder="CON-MT-44219"/>
+          <TextInput value={number} onChange={e => setNumber(e.target.value)} placeholder="CON-UT-44219"/>
         </Field>
         <Field label="Expiration (YYYY-MM)">
           <TextInput value={exp} onChange={e => setExp(e.target.value)} placeholder="2027-03"/>

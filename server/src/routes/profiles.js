@@ -18,14 +18,40 @@ import { deleteDocFile } from './credential-docs.js';
 const router = Router();
 
 // ────────────────────────────────────────────────────────────────────────────
-// Helpers — assemble the full profile object the frontend uses everywhere.
+// Helpers
+// ────────────────────────────────────────────────────────────────────────────
+
+// avatar_url and cover_url are stored as JSON strings like
+// { "thumb": "users/42/avatar-thumb-abc.webp", ... }. We parse them and
+// rewrite each variant to a /api/files URL so the frontend can render them
+// without knowing storage internals.
+function parseUrls(stored) {
+  if (!stored) return null;
+  let parsed = stored;
+  if (typeof stored === 'string') {
+    try { parsed = JSON.parse(stored); } catch { return null; }
+  }
+  if (typeof parsed !== 'object' || !parsed) return null;
+  const out = {};
+  for (const [size, key] of Object.entries(parsed)) {
+    if (typeof key === 'string') {
+      // Encode each path segment, keep the slashes structural.
+      const encoded = key.split('/').map(encodeURIComponent).join('/');
+      out[size] = `/api/files/${encoded}`;
+    }
+  }
+  return out;
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// loadProfile — assembles the full profile object the frontend uses everywhere.
 // Keeping this in one function means the profile page, feed sidebar, and
 // network card all see consistent shapes.
 // ────────────────────────────────────────────────────────────────────────────
 async function loadProfile(userId, viewerId) {
   const userP = q(
     `SELECT id, email, email_verified, first_name, last_name, headline, location, about,
-            avatar_tone, cover_kind, verified_smith, years_experience,
+            avatar_tone, cover_kind, avatar_url, cover_url, verified_smith, years_experience,
             union_name, union_member_since, apprentice_hours, apprentice_required, apprentice_status,
             insurance_carrier, insurance_limit, insurance_verified,
             insurance_doc_url, insurance_doc_mime, insurance_share_public,
@@ -115,6 +141,8 @@ async function loadProfile(userId, viewerId) {
     about: u.about,
     avatar_tone: u.avatar_tone,
     cover_kind: u.cover_kind,
+    avatar_urls: parseUrls(u.avatar_url),
+    cover_urls:  parseUrls(u.cover_url),
     verified_smith: u.verified_smith,
     years_experience: u.years_experience,
     union: u.union_name ? {
@@ -220,7 +248,7 @@ router.patch('/me', requireAuth, async (req, res) => {
   await q(`UPDATE users SET ${sets.join(', ')} WHERE id = $1`, vals);
 
   if (oldInsDoc && oldInsDoc !== updates.insurance_doc_url) {
-    deleteDocFile(oldInsDoc);
+    deleteDocFile(oldInsDoc, req.userId);
   }
 
   const profile = await loadProfile(req.userId, req.userId);
@@ -320,7 +348,7 @@ router.patch('/me/licenses/:lid', requireAuth, async (req, res) => {
 
   // If doc was replaced or cleared, delete the old file from disk.
   if ('doc_url' in updates && oldDoc && oldDoc !== updates.doc_url) {
-    deleteDocFile(oldDoc);
+    deleteDocFile(oldDoc, req.userId);
   }
 
   res.json({ ok: true });
@@ -336,7 +364,7 @@ router.delete('/me/licenses/:lid', requireAuth, async (req, res) => {
   );
   const r = await q(`DELETE FROM licenses WHERE id = $1 AND user_id = $2`, [lid, req.userId]);
   if (!r.rowCount) return res.status(404).json({ error: 'Not found' });
-  if (cur.rows[0]?.doc_url) deleteDocFile(cur.rows[0].doc_url);
+  if (cur.rows[0]?.doc_url) deleteDocFile(cur.rows[0].doc_url, req.userId);
   res.json({ ok: true });
 });
 

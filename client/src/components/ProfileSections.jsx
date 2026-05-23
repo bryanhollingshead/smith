@@ -7,23 +7,41 @@ import React, { useState } from 'react';
 import { B } from '../lib/theme.js';
 import { Icon } from '../components/Icon.jsx';
 import { Avatar, Photo } from '../components/Primitives.jsx';
+import { SmithAvatar } from './SmithAvatar.jsx';
 import { api } from '../lib/api.js';
 import { useRouter } from '../lib/router.jsx';
 
 // ── Header ──────────────────────────────────────────────────────────────
 export function ProfileHeader({ profile, isMe, onEdit, onConnect, onMessage }) {
+  // Cover: prefer a real uploaded cover photo (medium variant, fits well at
+  // 220px header height). Fall back to the placeholder Photo render keyed
+  // off cover_kind.
+  const coverPhotoUrl = profile.cover_urls?.medium || profile.cover_urls?.full;
+
   return (
     <section style={{
       background: B.surface, border: `1px solid ${B.line}`,
       borderRadius: 4, overflow: 'hidden',
     }}>
-      <Photo kind={profile.cover_kind} label="cover" height={220}/>
+      {coverPhotoUrl ? (
+        <div style={{
+          height: 220,
+          background: `center/cover url("${coverPhotoUrl}") no-repeat`,
+        }}/>
+      ) : (
+        <Photo kind={profile.cover_kind} label="cover" height={220}/>
+      )}
       <div style={{ padding: '28px 40px 32px', position: 'relative' }}>
         <div style={{
           display: 'flex', alignItems: 'flex-start', gap: 24, marginTop: -88,
         }}>
           <div style={{ background: B.surface, padding: 5, borderRadius: '50%' }}>
-            <Avatar initials={profile.initials} size={144} tone={profile.avatar_tone}/>
+            <SmithAvatar
+              urls={profile.avatar_urls}
+              initials={profile.initials}
+              size={144}
+              tone={profile.avatar_tone}
+            />
           </div>
           <div style={{ flex: 1, paddingTop: 96 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
@@ -80,10 +98,6 @@ export function ProfileHeader({ profile, isMe, onEdit, onConnect, onMessage }) {
                       if (!canMessage) return;
                       try {
                         const { thread_id } = await api.post('/messages/threads', { peer_id: profile.id });
-                        // Use the router from the caller's scope. We don't
-                        // have direct access here, so we set the hash directly
-                        // — onMessage prop is now unused but kept for parents
-                        // that wired it.
                         window.location.hash = `#/messages/${thread_id}`;
                         onMessage?.(thread_id);
                       } catch (e) {
@@ -153,7 +167,6 @@ export function ProfileHeader({ profile, isMe, onEdit, onConnect, onMessage }) {
 function ConnectButton({ profile, onConnect }) {
   const [busy, setBusy] = useState(false);
   const status = profile.connection?.status;
-  const requestedByMe = profile.connection?.requested_by; // boolean isn't enough — need to compare to current user; we encode this in the parent via `isMe` and the server returns requested_by as user id
 
   const send = async () => {
     setBusy(true);
@@ -324,21 +337,12 @@ export function CompaniesSection({ profile, isMe, onEdit }) {
 }
 
 // ── Selected work (featured grid) ──────────────────────────────────────
-//
-// `onEdit` here is the default "open Edit Profile" callback. For the empty
-// state we replace it with a smarter callback that deep-links straight to
-// either "Add a company" (if no companies yet) or the newest company's
-// expansion (if companies exist but no jobsites are featured).
 export function FeaturedSection({ profile, isMe, onEdit, navigate }) {
-  // Show up to 10 jobsites flagged is_featured; otherwise (no featured set)
-  // surface the first 10 as a fallback so a profile isn't blank just because
-  // the user never explicitly flipped the toggle.
   const all = profile.work_history.flatMap(w => w.jobsites || []);
   const featured = all.filter(j => j.is_featured);
   const list = (featured.length ? featured : all).slice(0, 10);
 
   if (list.length === 0) {
-    // Smart routing: pick the right focus token for EditProfile to act on.
     const focus = profile.work_history.length === 0 ? 'add-company' : 'newest-company';
     const smartOnEdit = (isMe && navigate)
       ? () => navigate(`/profile/edit?tab=history&focus=${focus}`)
@@ -468,9 +472,6 @@ export function CredentialsSection({ profile, isMe, onEdit }) {
               <div style={{ color: B.faint, fontSize: 11, marginTop: 4 }}>
                 {l.number} · Expires {l.expiration}
               </div>
-              {/* Doc link: visible when the loader gave us a doc_url. The
-                  server already gates this — owner always sees, others only
-                  when share_public is on. */}
               {l.doc_url && (
                 <a
                   href={l.doc_url}
@@ -542,28 +543,13 @@ export function CredentialsSection({ profile, isMe, onEdit }) {
 }
 
 // ── Right rail: skills + small network preview ────────────────────────
-// ── Right rail: skills + small network preview ────────────────────────
-//
-// Endorsement model:
-//   - On the viewer's own profile (isMe=true) → the row is read-only. We
-//     show the count and (if anyone has endorsed) make the count clickable
-//     to open the endorsers modal. No endorse button.
-//   - On someone else's profile → each row gets a small `+` / ✓ button
-//     that toggles whether you've endorsed. The row body itself is also
-//     a button — clicking it opens the endorsers modal.
-//
-// State: we keep a local copy of the skills list so optimistic updates
-// (count changes, button flip) feel instant. The parent profile data is
-// still authoritative; it gets refreshed on tab/page change.
 export function ProfileRightRail({ profile, isMe, recentConnections, onEdit }) {
   const [skills, setSkills] = useState(profile.skills);
-  const [openSkill, setOpenSkill] = useState(null);  // skill being viewed in the endorsers modal
+  const [openSkill, setOpenSkill] = useState(null);
 
-  // If the parent profile reloads, sync local skills.
   React.useEffect(() => { setSkills(profile.skills); }, [profile.skills]);
 
   const toggleEndorse = async (skill) => {
-    // Optimistic update — reflect change immediately.
     const wasEndorsed = !!skill.endorsed_by_me;
     setSkills(ss => ss.map(s => s.id === skill.id
       ? { ...s, endorsed_by_me: !wasEndorsed, endorsements: s.endorsements + (wasEndorsed ? -1 : 1) }
@@ -573,13 +559,11 @@ export function ProfileRightRail({ profile, isMe, recentConnections, onEdit }) {
       const data = wasEndorsed
         ? await api.delete(`/profiles/${profile.id}/skills/${skill.id}/endorse`)
         : await api.post(`/profiles/${profile.id}/skills/${skill.id}/endorse`);
-      // Reconcile with server-authoritative numbers.
       setSkills(ss => ss.map(s => s.id === skill.id
         ? { ...s, endorsed_by_me: data.endorsed_by_me, endorsements: data.endorsements }
         : s
       ));
     } catch {
-      // Revert on failure.
       setSkills(ss => ss.map(s => s.id === skill.id
         ? { ...s, endorsed_by_me: wasEndorsed, endorsements: s.endorsements + (wasEndorsed ? 1 : -1) }
         : s
@@ -634,7 +618,6 @@ export function ProfileRightRail({ profile, isMe, recentConnections, onEdit }) {
           }}>Skills</h3>
           {skills.map(s => {
             const canOpenModal = s.endorsements > 0;
-            const rowBg = isMe ? 'transparent' : B.bg;
             return (
               <div key={s.id} style={{
                 marginBottom: 12, padding: '8px 10px', margin: '0 -10px 4px',
@@ -759,7 +742,6 @@ const ghostBtn = {
   display: 'inline-flex', alignItems: 'center', gap: 8,
 };
 
-// ── Endorse button (small) ─────────────────────────────────────────────
 function EndorseButton({ endorsed, onClick }) {
   return (
     <button
@@ -794,7 +776,6 @@ function EndorseButton({ endorsed, onClick }) {
   );
 }
 
-// ── Endorsers modal — pops on row click, lists who endorsed ────────────
 function EndorsersModal({ profileId, skill, onClose }) {
   const { navigate } = useRouter();
   const [endorsers, setEndorsers] = useState(null);
@@ -885,13 +866,6 @@ function EndorsersModal({ profileId, skill, onClose }) {
   );
 }
 
-// ── Empty section ──────────────────────────────────────────────────────
-// Generic empty-state card for any profile section. Two voice variants:
-//   - own profile: action-oriented (headline + body + CTA → /profile/edit)
-//   - other profile: neutral, observational ("Sam hasn't added X yet")
-//
-// Visually matches the filled-state section style (same background, border,
-// padding) so the page rhythm stays consistent.
 function EmptySection({ title, ownPrompt, otherPrompt, isMe, onEdit, icon }) {
   return (
     <section style={{
@@ -945,12 +919,6 @@ function EmptySection({ title, ownPrompt, otherPrompt, isMe, onEdit, icon }) {
   );
 }
 
-// ── Profile strength banner ────────────────────────────────────────────
-// Self-only nudge that sits between the header and the sections. Reads from
-// /api/profiles/me/strength, which returns {pct, checklist[]} where each
-// checklist item is {label, done}. We surface the first two unchecked items
-// as the actionable hint. Dismissible (persists via localStorage so it
-// doesn't reappear every page load), and hides when pct === 100.
 export function ProfileStrengthBanner({ onEdit }) {
   const [data, setData] = React.useState(null);
   const [dismissed, setDismissed] = React.useState(() => {
@@ -962,15 +930,13 @@ export function ProfileStrengthBanner({ onEdit }) {
     let cancelled = false;
     api.get('/profiles/me/strength')
       .then(d => { if (!cancelled) setData(d); })
-      .catch(() => { /* silent — banner just doesn't show */ });
+      .catch(() => {});
     return () => { cancelled = true; };
   }, []);
 
   if (dismissed || !data) return null;
-  // Don't pester anyone at 100%.
   if (data.pct >= 100) return null;
 
-  // Pull the first two unchecked items for the "what to do next" hint.
   const todo = (data.checklist || []).filter(c => !c.done).slice(0, 2);
 
   const dismiss = () => {
@@ -984,7 +950,6 @@ export function ProfileStrengthBanner({ onEdit }) {
       padding: '18px 24px',
       display: 'flex', alignItems: 'center', gap: 18,
     }}>
-      {/* Donut-style progress indicator. SVG so it scales cleanly. */}
       <div style={{ position: 'relative', flexShrink: 0 }}>
         <svg width={56} height={56} viewBox="0 0 56 56">
           <circle cx="28" cy="28" r="24" stroke={B.surface2} strokeWidth="4" fill="none"/>

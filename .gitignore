@@ -1,0 +1,34 @@
+# Smith — root .gitignore
+
+# macOS
+.DS_Store
+**/.DS_Store
+._*
+
+# Node
+node_modules/
+**/node_modules/
+npm-debug.log*
+
+# Build output
+dist/
+build/
+.vite/
+.cache/
+
+# Secrets — NEVER commit .env
+.env
+**/.env
+.env.local
+!.env.example
+
+# Local uploads (STORAGE_DRIVER=local writes here)
+server/uploads/
+
+# Editor
+.vscode/
+.idea/
+*.swp
+
+# Logs
+*.log

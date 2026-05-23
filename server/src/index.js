@@ -14,6 +14,8 @@ import credentialDocsRouter from './routes/credential-docs.js';
 import messagesRouter from './routes/messages.js';
 import { attachMessagingWS } from './routes/messages-ws.js';
 import openapiRouter from './routes/openapi.js';
+import photosRouter from './routes/photos.js';
+import filesRouter from './routes/files.js';
 import { readClientVersion } from './middleware-version.js';
 
 const app = express();
@@ -45,6 +47,8 @@ app.use('/api', newsRouter);          // /news, /news/categories, /admin/news/..
 app.use('/api', credentialDocsRouter); // /credential-docs upload + serve
 app.use('/api/messages', messagesRouter); // /threads, /threads/:id/messages, /unread-count
 app.use('/api', openapiRouter);       // /openapi.yaml, /openapi.json, /docs
+app.use('/api/photos', photosRouter); // /avatar, /cover  (POST + DELETE)
+app.use('/api', filesRouter);         // /files/*  (serves storage objects)
 
 // 404
 app.use((req, res) => res.status(404).json({ error: 'Not found', path: req.url }));

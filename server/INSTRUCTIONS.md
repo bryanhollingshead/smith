@@ -1,187 +1,291 @@
-# Smith — API Spec & Commandment Patch — Apply Instructions
+# Smith — Patch A: Storage Layer + Profile Photos — Apply Instructions
 
 This patch adds:
-1. **`docs/API_COMMANDMENT.md`** — Smith's architectural constitution: the additive-only API rules
-2. **`docs/api.yaml`** — Full OpenAPI 3.1 spec covering all ~45 endpoints (59 path+method combos)
-3. **`server/src/routes/openapi.js`** — Serves the spec + Swagger UI at `/api/docs`
-4. **`server/src/middleware-version.js`** — Reads `Smith-Version` header (currently unused, plumbed for the future)
-5. **`server/tests/api-shape.sh`** — Smoke test that catches accidental contract drift
 
-Plus **two small edits to existing files** to wire it together.
+1. **Storage abstraction** (`server/src/storage.js`) — driver-pattern with `local` and `r2` drivers, selected by env var.
+2. **Image processing** (`server/src/image-processing.js`) — Sharp pipeline that resizes to 3 WebP variants (thumb/medium/full). Discards originals.
+3. **Migration 006** — adds `users.avatar_url` and `users.cover_url`.
+4. **New photo routes** — `POST/DELETE /api/photos/avatar` and `/api/photos/cover`.
+5. **Files endpoint** — `GET /api/files/*` to serve storage objects (used by the local driver; also by R2 driver when no public-base is configured).
+6. **Credential docs migration** — `routes/credential-docs.js` rewritten to use storage.js. Existing license `doc_url` filenames continue to work.
+7. **Frontend** — new `<SmithAvatar>` (smart avatar: prefers photo, falls back to initials), new `<PhotoUpload>` component.
+8. **New deps:** `sharp`, `@aws-sdk/client-s3`.
+
+Plus small inline edits to existing files documented at the bottom.
 
 ## Step 1: Drop files in place
 
 ```bash
 cd ~/Desktop/smith-app
-unzip -o ~/Downloads/smith-fix-api-spec.zip
+unzip -o ~/Downloads/smith-fix-storage-photos.zip
 ```
 
-You should see these 6 new files in the unzip output:
-- `docs/API_COMMANDMENT.md`
-- `docs/api.yaml`
-- `server/src/routes/openapi.js`
-- `server/src/middleware-version.js`
-- `server/tests/api-shape.sh`
-- `server/INSTRUCTIONS.md` (this file)
+New/overwritten files:
 
-## Step 2: Edit `server/src/index.js`
-
-Three additions to this file. Open it in your editor.
-
-**(a) Add the new imports near the existing route imports.** Find this block at the top:
-
-```js
-import messagesRouter from './routes/messages.js';
-import { attachMessagingWS } from './routes/messages-ws.js';
+```
+server/.env.example                          (new)
+server/migrations/006_photo_urls.sql         (new)
+server/src/storage.js                        (new)
+server/src/image-processing.js               (new)
+server/src/routes/photos.js                  (new)
+server/src/routes/files.js                   (new)
+server/src/routes/credential-docs.js         (REPLACED — uses storage.js now)
+server/package.json                          (REPLACED — adds sharp + aws-sdk)
+server/tests/storage.sh                      (new)
+client/src/components/SmithAvatar.jsx        (new)
+client/src/components/PhotoUpload.jsx        (new)
+server/INSTRUCTIONS.md                       (this file)
 ```
 
-Add these two lines immediately after:
-
-```js
-import openapiRouter from './routes/openapi.js';
-import { readClientVersion } from './middleware-version.js';
-```
-
-**(b) Wire the version middleware in BEFORE any route handlers.** Find where the JSON body parser is registered:
-
-```js
-app.use(express.json({ limit: '1mb' }));
-```
-
-Add this line right after it:
-
-```js
-app.use(readClientVersion);
-```
-
-**(c) Mount the OpenAPI router alongside the existing routes.** Find:
-
-```js
-app.use('/api', credentialDocsRouter);
-app.use('/api/messages', messagesRouter);
-```
-
-Add this line right after them:
-
-```js
-app.use('/api', openapiRouter); // serves /openapi.yaml, /openapi.json, /docs
-```
-
-That's all for `index.js` — three additions, none touching existing lines.
-
-## Step 3: Edit `client/src/lib/api.js`
-
-We want every outbound request from the web client to carry the `Smith-Version` header. The current build's date is `2026-05-19`.
-
-Open `client/src/lib/api.js`. Find the `fetch(...)` call inside the helper that does HTTP requests. It'll look something like:
-
-```js
-const r = await fetch(url, {
-  method,
-  headers: {
-    'Content-Type': 'application/json',
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
-  },
-  body: body ? JSON.stringify(body) : undefined,
-});
-```
-
-Add a Smith-Version header into the headers object:
-
-```js
-const r = await fetch(url, {
-  method,
-  headers: {
-    'Content-Type': 'application/json',
-    'Smith-Version': '2026-05-19',
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
-  },
-  body: body ? JSON.stringify(body) : undefined,
-});
-```
-
-If your `api.js` has multiple fetch calls (e.g. one for JSON, one for multipart upload), add the header to each. The version string `2026-05-19` is today's date — we update this when we ship a client build locked to a specific API generation. For now, "today" is fine.
-
-**Note:** This header is currently informational. The server reads it into `req.smithVersion` but no route gates behavior on it. The plumbing is in place for when (if) we ever need it.
-
-## Step 4: Restart the server
+## Step 2: Install new dependencies
 
 ```bash
 cd ~/Desktop/smith-app/server
-# Ctrl+C the running server, then:
+npm install
+```
+
+Sharp downloads pre-built binaries — ~30 seconds. AWS SDK is ~10MB on disk — expected.
+
+If `npm install` fails on Sharp:
+
+```bash
+npm install --include=optional sharp
+```
+
+## Step 3: Update your `.env`
+
+Open `~/Desktop/smith-app/server/.env` (NOT `.env.example`). Add:
+
+```
+STORAGE_DRIVER=local
+```
+
+This keeps you on local-disk for now. **Don't add R2 credentials yet** — we verify everything locally first.
+
+## Step 4: Apply migration + reseed
+
+```bash
+cd ~/Desktop/smith-app/server
+npm run reset
+```
+
+You should see `applying 006_photo_urls.sql` in the output.
+
+## Step 5: Inline edits to existing files
+
+### Edit 5a — `server/src/index.js`
+
+Wire in the new routes. Two import lines at the top with the others:
+
+```js
+import photosRouter from './routes/photos.js';
+import filesRouter from './routes/files.js';
+```
+
+Two `app.use` lines with the existing route mounts:
+
+```js
+app.use('/api/photos', photosRouter);
+app.use('/api', filesRouter);
+```
+
+### Edit 5b — `server/src/routes/profiles.js`
+
+Expose `avatar_url` and `cover_url` on the profile object.
+
+**(i) Add columns to the user SELECT.** Find this SELECT in `loadProfile`:
+
+```js
+SELECT id, email, email_verified, first_name, last_name, headline, location, about,
+       avatar_tone, cover_kind, verified_smith, ...
+```
+
+Add `avatar_url, cover_url` somewhere in the column list (e.g. right after `cover_kind`).
+
+**(ii) Add a helper near the top of the file** (after imports, before `loadProfile`):
+
+```js
+// avatar_url and cover_url are stored as JSON strings like
+// { "thumb": "users/42/avatar-thumb-abc.webp", ... }. We parse them to
+// objects and rewrite each variant to an absolute /api/files URL so the
+// frontend can render them directly.
+function parseUrls(stored) {
+  if (!stored) return null;
+  let parsed = stored;
+  if (typeof stored === 'string') {
+    try { parsed = JSON.parse(stored); } catch { return null; }
+  }
+  if (typeof parsed !== 'object' || !parsed) return null;
+  const out = {};
+  for (const [size, key] of Object.entries(parsed)) {
+    if (typeof key === 'string') {
+      const encoded = key.split('/').map(encodeURIComponent).join('/');
+      out[size] = `/api/files/${encoded}`;
+    }
+  }
+  return out;
+}
+```
+
+**(iii) Add to the returned profile object** at the bottom of `loadProfile`. Anywhere in the big return object — natural placement is next to `avatar_tone`:
+
+```js
+    avatar_urls: parseUrls(u.avatar_url),
+    cover_urls:  parseUrls(u.cover_url),
+```
+
+### Edit 5c — `client/src/pages/EditProfile.jsx` (frontend wire-up)
+
+Open `EditProfile.jsx`. Imports at top:
+
+```jsx
+import { PhotoUpload } from '../components/PhotoUpload.jsx';
+import { SmithAvatar } from '../components/SmithAvatar.jsx';
+```
+
+Add an avatar + cover section in the form (near the top of the editor):
+
+```jsx
+<div style={{ display: 'flex', gap: 24, marginBottom: 24, alignItems: 'flex-start' }}>
+  <div>
+    <div style={{ fontSize: 12, color: B.dim, fontStyle: 'italic', marginBottom: 8 }}>
+      Profile photo
+    </div>
+    <PhotoUpload
+      kind="avatar"
+      currentUrls={profile.avatar_urls}
+      onChange={(urls) => setProfile(p => ({ ...p, avatar_urls: urls }))}
+      preview={(urls) => (
+        <SmithAvatar
+          urls={urls}
+          initials={profile.initials}
+          tone={profile.avatar_tone}
+          size={96}
+        />
+      )}
+      label="Upload photo"
+    />
+  </div>
+  <div style={{ flex: 1 }}>
+    <div style={{ fontSize: 12, color: B.dim, fontStyle: 'italic', marginBottom: 8 }}>
+      Cover photo
+    </div>
+    <PhotoUpload
+      kind="cover"
+      currentUrls={profile.cover_urls}
+      onChange={(urls) => setProfile(p => ({ ...p, cover_urls: urls }))}
+      preview={(urls) => (
+        <div style={{
+          width: '100%', height: 120, borderRadius: 4,
+          background: urls?.medium
+            ? `center/cover url("${urls.medium}") no-repeat`
+            : B.surface2,
+          border: `1px solid ${B.line}`,
+        }}/>
+      )}
+      label="Upload cover"
+    />
+  </div>
+</div>
+```
+
+Adapt naming if your EditProfile state shape uses different variable names.
+
+### Edit 5d — `client/src/components/ProfileSections.jsx` (use new avatar)
+
+In ProfileHeader, import SmithAvatar:
+
+```jsx
+import { SmithAvatar } from './SmithAvatar.jsx';
+```
+
+Swap the existing `<Avatar ...>` in the header for:
+
+```jsx
+<SmithAvatar
+  urls={profile.avatar_urls}
+  initials={profile.initials}
+  tone={profile.avatar_tone}
+  size={120}  /* keep the size you already had */
+/>
+```
+
+For the cover banner, where the gradient is drawn, prefer the cover URL when present. Something like:
+
+```jsx
+style={{
+  background: profile.cover_urls?.medium
+    ? `center/cover url("${profile.cover_urls.medium}") no-repeat`
+    : /* your existing tone-based gradient here */,
+  /* ...rest of styles */
+}}
+```
+
+## Step 6: Restart the server
+
+```bash
+# Ctrl+C, then:
 npm run dev
 ```
 
-Watch for any startup errors — most likely culprit is a typo in the index.js edits.
-
-## Step 5: Visit the API docs
-
-Open your browser to:
-
-```
-http://localhost:5173/api/docs
-```
-
-(Or directly: `http://localhost:4000/api/docs`)
-
-You should see a Swagger UI with **Smith API** as the title and every endpoint listed by tag (Auth, Profiles, Connections, etc.). Click any endpoint to see the request/response schema. The "Authorize" button in the top right lets you paste a JWT to test authenticated endpoints right from the browser.
-
-## Step 6: Run the smoke test
+## Step 7: Run the storage smoke test
 
 ```bash
-cd ~/Desktop/smith-app/server
-bash tests/api-shape.sh
+bash tests/storage.sh
 ```
 
-You should see 10 green checkmarks ending in:
+Should print 7 green check marks ending in `🎉 All 7 storage checks pass.`
+
+## Step 8: Test in the browser
+
+Sign in. Edit Profile. Upload an avatar + cover. Confirm:
+- Upload progress shows
+- Preview updates immediately after upload completes
+- After saving / refreshing, the new avatar appears on your profile + in TopNav
+
+## Step 9: Switch to R2 (when ready)
+
+1. Add R2 credentials to `server/.env`:
 
 ```
-🎉  All 10 API shape checks pass.
+STORAGE_DRIVER=r2
+R2_ACCOUNT_ID=...
+R2_ACCESS_KEY_ID=...
+R2_SECRET_ACCESS_KEY=...
+R2_BUCKET=smith-uploads
+R2_PUBLIC_BASE=        # leave blank for now
 ```
 
-This test will become more important over time. As you add endpoints, add one more check here — if the response shape ever drifts from what we documented, the test fails loudly.
+2. Restart the server.
+3. Re-run `bash tests/storage.sh` — should still pass.
+4. Check your Cloudflare R2 dashboard — you should see `users/<your-id>/avatar-thumb-...webp` etc.
 
-## Step 7: Read the commandment
+If R2 errors, the server log will say why (wrong credential format, bucket not found, network reachability).
 
-This is genuinely worth 5 minutes of your time:
-
-```bash
-open docs/API_COMMANDMENT.md
-```
-
-When you bring on other developers (or come back to this codebase yourself in 6 months), this is the first thing to read. It codifies the additive-only discipline we've agreed to.
-
-## Step 8: Commit
+## Step 10: Commit
 
 ```bash
 cd ~/Desktop/smith-app
 git add .
-git commit -m "API: OpenAPI spec + additive-only commandment + docs UI"
+git commit -m "Storage layer (local+R2) + profile photos (avatar+cover)"
 git push
 ```
 
 ---
 
-## What this does NOT do
+## What's NOT in this patch (coming in Patch B)
 
-- Does NOT move any endpoints. No path versioning, no URL changes.
-- Does NOT change any existing endpoint behavior. Backward-compatible in every direction.
-- Does NOT install any npm dependencies. Swagger UI is loaded from a CDN.
-- Does NOT add any new auth/authorization requirements.
+- Jobsite photos (up to 10 per jobsite, gallery)
+- Post photos (up to 4 per post, real images)
+- Company logo upload
 
-## What this enables
+Same patterns broadened. Patch B will be a faster session because Patch A built the foundation.
 
-- **Single source of truth** for the API contract (`docs/api.yaml`)
-- **Browsable documentation** at `/api/docs` — share that URL with future devs
-- **The additive-only commandment** is codified, not just a verbal agreement
-- **Version plumbing** in place — when we want to gate behavior on client build dates later, it's a one-liner per route
-- **Drift detection** via the smoke test — catches accidental breaks before they ship
+## Notes on R2 + deployment
 
----
+When you deploy to Render later:
+- Set `STORAGE_DRIVER=r2` in Render's env vars
+- Set the 4 R2 vars there too
+- Optionally configure R2 bucket for public access + set `R2_PUBLIC_BASE` to the bucket's public URL — images load direct from Cloudflare's CDN rather than proxying through Node. Faster + cheaper.
 
-## Future enhancements (defer until needed)
-
-- Swap Swagger UI for **Redoc** or **Scalar** when you want sleeker docs (10-line change)
-- Add `js-yaml` as a dep so `/api/openapi.json` works (only if a tool wants JSON)
-- Add CI check that runs `api-shape.sh` on every push
-- Generate a TypeScript client from the spec when mobile dev starts (`openapi-typescript-codegen` or similar)
+Local driver continues to work for local dev. Standard split: `STORAGE_DRIVER=local` locally, `STORAGE_DRIVER=r2` in production.
