@@ -702,13 +702,12 @@ function CompanyEditor({ co, onChanged, focusAddJobsite, featuredCount, featured
       <div style={{
         padding: '14px 18px', display: 'flex', alignItems: 'center', gap: 12,
       }}>
-        <div style={{
-          width: 38, height: 38, background: B.surface, borderRadius: '50%',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          color: B.accent, border: `1px solid ${B.line}`, flexShrink: 0,
-        }}>
-          <Icon name="building" size={18}/>
-        </div>
+        <CompanyLogoMark
+          urls={co.company_logo_urls}
+          size={38}
+          companyId={co.company_id}
+          onChanged={onChanged}
+        />
         <div style={{ flex: 1 }}>
           <div className="serif" style={{
             color: B.text, fontWeight: 600, fontSize: 15, letterSpacing: '-0.01em',
@@ -743,9 +742,7 @@ function CompanyEditor({ co, onChanged, focusAddJobsite, featuredCount, featured
               background: B.surface, border: `1px solid ${B.line}`, borderRadius: 4,
               padding: '8px 12px', marginBottom: 6,
             }}>
-              <div style={{ width: 50, height: 36, borderRadius: 2, overflow: 'hidden' }}>
-                <Photo kind={js.photo_kind} label="" height={36}/>
-              </div>
+              <JobsitePhotoCell jobsite={js} onChanged={onChanged}/>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div className="serif" style={{ color: B.text, fontSize: 13, fontWeight: 600 }}>
                   {js.title}
@@ -821,6 +818,33 @@ function AddCompanyForm({ onCancel, onAdded }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
 
+  // Pending logo file (only used when creating a new company). Uploaded
+  // after the company row is created — same pattern as jobsite photo.
+  const [pendingLogo, setPendingLogo] = useState(null);
+  const [pendingLogoPreview, setPendingLogoPreview] = useState(null);
+  const logoFileRef = React.useRef(null);
+
+  useEffect(() => {
+    if (!pendingLogoPreview) return;
+    return () => URL.revokeObjectURL(pendingLogoPreview);
+  }, [pendingLogoPreview]);
+
+  const handleLogoFile = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setError(null);
+    setPendingLogo(file);
+    if (pendingLogoPreview) URL.revokeObjectURL(pendingLogoPreview);
+    setPendingLogoPreview(URL.createObjectURL(file));
+  };
+
+  const clearLogo = () => {
+    setPendingLogo(null);
+    if (pendingLogoPreview) URL.revokeObjectURL(pendingLogoPreview);
+    setPendingLogoPreview(null);
+    if (logoFileRef.current) logoFileRef.current.value = '';
+  };
+
   useEffect(() => {
     if (picked || createNew) { setMatches(null); return; }
     const term = name.trim();
@@ -867,12 +891,28 @@ function AddCompanyForm({ onCancel, onAdded }) {
     setError(null);
     try {
       let companyId = picked?.id;
+      let newCompany = !companyId;
       if (!companyId) {
         const { company } = await api.post('/companies', {
           name: name.trim(), type, claim: false,
         });
         companyId = company.id;
       }
+
+      // Upload the logo if one was attached. Only happens for new companies
+      // (for picked ones, the logo belongs to the company itself, not this
+      // user's tenure — they can edit it from the company page later).
+      if (newCompany && pendingLogo && companyId) {
+        try {
+          const fd = new FormData();
+          fd.append('file', pendingLogo);
+          await api.upload(`/photos/company/${companyId}/logo`, fd);
+        } catch (logoErr) {
+          // Surface a soft warning — company + work-history still got created.
+          setError('Company added, but logo upload failed: ' + (logoErr.data?.error || logoErr.message));
+        }
+      }
+
       await api.post('/work-history', {
         company_id: companyId,
         role: role.trim(),
@@ -996,13 +1036,62 @@ function AddCompanyForm({ onCancel, onAdded }) {
       </Field>
 
       {(createNew || (!picked && name.trim().length >= 2 && matches?.length === 0)) && !picked && (
-        <Field label="Company type (we'll create this company)">
-          <select value={type} onChange={e => setType(e.target.value)} style={inputStyle}>
-            {['General Contractor', 'Sub · Carpentry', 'Sub · Electrical', 'Sub · Plumbing', 'Sub · Concrete', 'Sub · Roofing', 'Sub · HVAC', 'Sub · Other', 'Architect', 'Independent', 'Other'].map(o => (
-              <option key={o} value={o}>{o}</option>
-            ))}
-          </select>
-        </Field>
+        <>
+          <Field label="Company type (we'll create this company)">
+            <select value={type} onChange={e => setType(e.target.value)} style={inputStyle}>
+              {['General Contractor', 'Sub · Carpentry', 'Sub · Electrical', 'Sub · Plumbing', 'Sub · Concrete', 'Sub · Roofing', 'Sub · HVAC', 'Sub · Other', 'Architect', 'Independent', 'Other'].map(o => (
+                <option key={o} value={o}>{o}</option>
+              ))}
+            </select>
+          </Field>
+          {/* ── Optional logo for the new company ────────────────
+              Uploaded after the company row is created. */}
+          <Field label="Company logo (optional)">
+            <input
+              type="file"
+              ref={logoFileRef}
+              accept="image/jpeg,image/png,image/webp,image/heic,image/heif"
+              onChange={handleLogoFile}
+              style={{ display: 'none' }}
+            />
+            {!pendingLogoPreview ? (
+              <button
+                type="button"
+                onClick={() => logoFileRef.current?.click()}
+                style={{
+                  width: '100%', padding: 12,
+                  background: 'transparent', border: `1px dashed ${B.line}`,
+                  borderRadius: 4, color: B.text,
+                  fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                  display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+                }}>
+                <Icon name="image" size={14} style={{ color: B.accent }}/>
+                Upload a logo from device
+              </button>
+            ) : (
+              <div style={{
+                display: 'flex', alignItems: 'center', gap: 10,
+                padding: '8px 10px', background: B.bg,
+                border: `1px solid ${B.line}`, borderRadius: 4,
+              }}>
+                <div style={{
+                  width: 40, height: 40, borderRadius: '50%', overflow: 'hidden',
+                  background: `center/cover url("${pendingLogoPreview}") no-repeat`,
+                  flexShrink: 0,
+                }}/>
+                <span style={{ flex: 1, color: B.text, fontSize: 12 }}>
+                  {pendingLogo?.name || 'logo'} · will upload after the company is created
+                </span>
+                <button type="button" onClick={clearLogo} style={{
+                  background: 'transparent', border: 'none', color: B.dim,
+                  padding: 4, cursor: 'pointer', display: 'inline-flex',
+                }}>
+                  <Icon name="x" size={12}/>
+                </button>
+              </div>
+            )}
+          </Field>
+        </>
       )}
 
       {picked && !picked.claimed && (
@@ -1068,13 +1157,44 @@ function AddJobsiteForm({ workId, onCancel, onAdded, featuredCount = 0, featured
   const [photoKind, setPhotoKind] = useState('frame');
   const [featured, setFeatured] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+  // Pending photo: user picks a file before submit; we hold it locally and
+  // upload it AFTER the jobsite is created (since the upload route needs the
+  // jobsite id). The preview comes from a local object URL.
+  const [pendingFile, setPendingFile] = useState(null);
+  const [pendingPreview, setPendingPreview] = useState(null);
+  const fileRef = React.useRef(null);
   const atCap = featuredCount >= featuredCap;
+
+  // Free the object URL when the picked file changes or the form unmounts.
+  useEffect(() => {
+    if (!pendingPreview) return;
+    return () => URL.revokeObjectURL(pendingPreview);
+  }, [pendingPreview]);
+
+  const handleFile = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setError(null);
+    setPendingFile(file);
+    if (pendingPreview) URL.revokeObjectURL(pendingPreview);
+    setPendingPreview(URL.createObjectURL(file));
+  };
+
+  const clearFile = () => {
+    setPendingFile(null);
+    if (pendingPreview) URL.revokeObjectURL(pendingPreview);
+    setPendingPreview(null);
+    if (fileRef.current) fileRef.current.value = '';
+  };
 
   const submit = async () => {
     if (!title.trim()) return;
     setBusy(true);
+    setError(null);
     try {
-      await api.post(`/work-history/${workId}/jobsites`, {
+      // 1. Create the jobsite (need its id to attach a photo).
+      const { jobsite } = await api.post(`/work-history/${workId}/jobsites`, {
         title: title.trim(),
         kind: kind.trim(),
         location: location.trim(),
@@ -1082,7 +1202,25 @@ function AddJobsiteForm({ workId, onCancel, onAdded, featuredCount = 0, featured
         photo_kind: photoKind,
         is_featured: featured,
       });
+
+      // 2. If a photo was picked, upload it now against the new jobsite id.
+      //    On photo-upload failure, we still consider the jobsite created;
+      //    the user can add a photo later by clicking the photo cell.
+      if (pendingFile && jobsite?.id) {
+        try {
+          const fd = new FormData();
+          fd.append('file', pendingFile);
+          await api.upload(`/photos/jobsite/${jobsite.id}`, fd);
+        } catch (photoErr) {
+          // Surface a soft warning but keep the row created.
+          setError('Jobsite added, but photo upload failed: ' + (photoErr.data?.error || photoErr.message));
+          // Continue to onAdded so the parent reloads; user sees the row.
+        }
+      }
+
       onAdded?.();
+    } catch (e) {
+      setError(e.data?.error || 'Could not save jobsite.');
     } finally { setBusy(false); }
   };
 
@@ -1105,7 +1243,57 @@ function AddJobsiteForm({ workId, onCancel, onAdded, featuredCount = 0, featured
       <Field label="Duration">
         <TextInput value={duration} onChange={e => setDuration(e.target.value)} placeholder="2023–2024"/>
       </Field>
-      <Field label="Photo">
+
+      {/* ── Real photo upload (optional) ───────────────────────────────
+          Uploaded wins, but the photo_kind below remains as a fallback
+          for jobsites without a real photo. */}
+      <Field label="Photo (optional)">
+        <input
+          type="file"
+          ref={fileRef}
+          accept="image/jpeg,image/png,image/webp,image/heic,image/heif"
+          onChange={handleFile}
+          style={{ display: 'none' }}
+        />
+        {!pendingPreview ? (
+          <button
+            type="button"
+            onClick={() => fileRef.current?.click()}
+            style={{
+              width: '100%', padding: 12,
+              background: 'transparent', border: `1px dashed ${B.line}`,
+              borderRadius: 4, color: B.text,
+              fontSize: 12, fontWeight: 600, cursor: 'pointer',
+              display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+            }}>
+            <Icon name="image" size={14} style={{ color: B.accent }}/>
+            Upload a photo from device
+          </button>
+        ) : (
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 10,
+            padding: '8px 10px', background: B.surface,
+            border: `1px solid ${B.line}`, borderRadius: 4,
+          }}>
+            <div style={{
+              width: 60, height: 40, borderRadius: 2, overflow: 'hidden',
+              background: `center/cover url("${pendingPreview}") no-repeat`,
+              flexShrink: 0,
+            }}/>
+            <span style={{ flex: 1, color: B.text, fontSize: 12 }}>
+              {pendingFile?.name || 'photo'} · will upload after the jobsite is saved
+            </span>
+            <button type="button" onClick={clearFile} style={{
+              background: 'transparent', border: 'none', color: B.dim,
+              padding: 4, cursor: 'pointer', display: 'inline-flex',
+            }}>
+              <Icon name="x" size={12}/>
+            </button>
+          </div>
+        )}
+      </Field>
+
+      <Field label="Placeholder photo style (used when no upload)">
         <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
           {COVER_KINDS.map(k => (
             <button key={k} onClick={() => setPhotoKind(k)} style={{
@@ -1117,6 +1305,7 @@ function AddJobsiteForm({ workId, onCancel, onAdded, featuredCount = 0, featured
           ))}
         </div>
       </Field>
+
       <label style={{
         display: 'flex', alignItems: 'center', gap: 8, marginTop: 6,
         cursor: atCap ? 'not-allowed' : 'pointer',
@@ -1134,6 +1323,8 @@ function AddJobsiteForm({ workId, onCancel, onAdded, featuredCount = 0, featured
           )}
         </span>
       </label>
+
+      {error && <div style={{ color: B.danger, fontSize: 12, marginTop: 10 }}>{error}</div>}
 
       <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 12 }}>
         <button onClick={onCancel} style={{
@@ -1612,6 +1803,196 @@ function AddLicenseForm({ onCancel, onAdded }) {
           padding: '7px 16px', borderRadius: 100, fontSize: 12, fontWeight: 600, cursor: 'pointer',
         }}>{busy ? 'Saving…' : 'Add'}</button>
       </div>
+    </div>
+  );
+}
+
+// ── Patch B helper components ─────────────────────────────────────────
+// CompanyLogoMark renders a circular logo for a company. If the company
+// has an uploaded logo, that's shown. Otherwise we fall back to the
+// building-icon-on-surface placeholder.
+//
+// When companyId + onChanged are provided, the mark becomes clickable —
+// the user can pick a file to upload (or replace) the logo without
+// leaving the work-history row. The backend route enforces ownership
+// (only the company's claimer, or its creator if unclaimed, can change
+// the logo), so we don't need to gate the affordance client-side.
+function CompanyLogoMark({ urls, size = 38, companyId, onChanged }) {
+  const fileRef = React.useRef(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+  const interactive = !!companyId && typeof onChanged === 'function';
+  const src = urls?.thumb || urls?.medium;
+
+  const onFilePicked = async (e) => {
+    const file = e.target.files?.[0];
+    if (fileRef.current) fileRef.current.value = '';
+    if (!file) return;
+    setError(null);
+    setBusy(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      await api.upload(`/photos/company/${companyId}/logo`, fd);
+      onChanged?.();
+    } catch (err) {
+      setError(err.data?.error || 'Upload failed.');
+      setTimeout(() => setError(null), 3000);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // The inner content — either the photo or the building icon — is the
+  // same regardless of interactivity. Interactive mode wraps it in a
+  // button and adds a small upload badge.
+  const Inner = (
+    <div style={{
+      width: size, height: size, borderRadius: '50%',
+      overflow: 'hidden', flexShrink: 0,
+      border: `1px solid ${B.line}`,
+      background: src
+        ? `center/cover url("${src}") no-repeat`
+        : B.surface,
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      color: B.accent,
+      position: 'relative',
+    }}>
+      {!src && <Icon name="building" size={Math.round(size * 0.47)}/>}
+    </div>
+  );
+
+  if (!interactive) return Inner;
+
+  return (
+    <div style={{ position: 'relative', flexShrink: 0 }}>
+      <input
+        type="file"
+        ref={fileRef}
+        accept="image/jpeg,image/png,image/webp,image/heic,image/heif"
+        onChange={onFilePicked}
+        style={{ display: 'none' }}
+      />
+      <button
+        type="button"
+        onClick={() => !busy && fileRef.current?.click()}
+        title={src ? 'Click to replace logo' : 'Click to upload a logo'}
+        disabled={busy}
+        style={{
+          padding: 0, border: 'none', background: 'transparent',
+          cursor: busy ? 'wait' : 'pointer',
+          position: 'relative', display: 'block',
+          borderRadius: '50%',
+        }}>
+        {Inner}
+        {/* Small upload badge bottom-right corner — always visible so the
+            user knows it's interactive. Same pattern as JobsitePhotoCell. */}
+        <div style={{
+          position: 'absolute', bottom: -2, right: -2,
+          width: 14, height: 14, borderRadius: '50%',
+          background: 'rgba(42,31,23,0.7)', color: '#fff',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          border: `1px solid ${B.surface}`,
+        }}>
+          <Icon name={busy ? 'image' : 'plus'} size={8} stroke={2.4}/>
+        </div>
+      </button>
+      {error && (
+        <div style={{
+          position: 'absolute', top: '100%', left: 0,
+          marginTop: 4, padding: '4px 8px',
+          background: B.danger, color: '#fff',
+          fontSize: 10, borderRadius: 2,
+          whiteSpace: 'nowrap', zIndex: 5,
+        }}>{error}</div>
+      )}
+    </div>
+  );
+}
+
+// JobsitePhotoCell renders the small thumbnail next to a jobsite row in
+// the work-history list — and offers a click-to-upload affordance so the
+// user can attach a real photo (or replace the existing one) without
+// leaving the row. The hidden file input lets us pick a file directly;
+// the upload happens immediately and the parent reload reflects it.
+function JobsitePhotoCell({ jobsite, onChanged }) {
+  const fileRef = React.useRef(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+
+  const hasPhoto = !!jobsite.photo_urls;
+  const src = jobsite.photo_urls?.thumb || jobsite.photo_urls?.medium;
+
+  const onFilePicked = async (e) => {
+    const file = e.target.files?.[0];
+    if (fileRef.current) fileRef.current.value = '';
+    if (!file) return;
+    setError(null);
+    setBusy(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      await api.upload(`/photos/jobsite/${jobsite.id}`, fd);
+      onChanged?.();
+    } catch (err) {
+      setError(err.data?.error || 'Upload failed.');
+      // Clear the error after a few seconds so the cell goes back to normal.
+      setTimeout(() => setError(null), 3000);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div style={{ position: 'relative', flexShrink: 0 }}>
+      <input
+        type="file"
+        ref={fileRef}
+        accept="image/jpeg,image/png,image/webp,image/heic,image/heif"
+        onChange={onFilePicked}
+        style={{ display: 'none' }}
+      />
+      <button
+        type="button"
+        onClick={() => !busy && fileRef.current?.click()}
+        title={hasPhoto ? 'Click to replace photo' : 'Click to upload photo'}
+        disabled={busy}
+        style={{
+          width: 50, height: 36, padding: 0,
+          border: 'none', background: 'transparent',
+          borderRadius: 2, overflow: 'hidden',
+          cursor: busy ? 'wait' : 'pointer',
+          position: 'relative', display: 'block',
+        }}>
+        {src ? (
+          <div style={{
+            width: '100%', height: '100%',
+            background: `center/cover url("${src}") no-repeat`,
+          }}/>
+        ) : (
+          <Photo kind={jobsite.photo_kind} label="" height={36}/>
+        )}
+        {/* Hover hint: a faint camera icon overlay. Always visible so the
+            user knows it's interactive (without a designer-intensive
+            hover-only treatment). */}
+        <div style={{
+          position: 'absolute', bottom: 2, right: 2,
+          width: 14, height: 14, borderRadius: '50%',
+          background: 'rgba(42,31,23,0.7)', color: '#fff',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}>
+          <Icon name={busy ? 'image' : 'plus'} size={8} stroke={2.4}/>
+        </div>
+      </button>
+      {error && (
+        <div style={{
+          position: 'absolute', top: '100%', left: 0,
+          marginTop: 4, padding: '4px 8px',
+          background: B.danger, color: '#fff',
+          fontSize: 10, borderRadius: 2,
+          whiteSpace: 'nowrap', zIndex: 5,
+        }}>{error}</div>
+      )}
     </div>
   );
 }

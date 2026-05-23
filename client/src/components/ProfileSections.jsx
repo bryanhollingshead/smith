@@ -259,12 +259,17 @@ export function CompaniesSection({ profile, isMe, onEdit }) {
               }}
             >
               <div style={{
-                width: 54, height: 54, background: B.bg, borderRadius: '50%',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                color: B.accent, flexShrink: 0, position: 'relative', zIndex: 1,
+                width: 54, height: 54, borderRadius: '50%',
+                flexShrink: 0, position: 'relative', zIndex: 1,
                 border: `1px solid ${B.line}`,
+                overflow: 'hidden',
+                background: co.company_logo_urls?.thumb || co.company_logo_urls?.medium
+                  ? `center/cover url("${co.company_logo_urls.thumb || co.company_logo_urls.medium}") no-repeat`
+                  : B.bg,
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                color: B.accent,
               }}>
-                <Icon name="building" size={22} stroke={1.4}/>
+                {!co.company_logo_urls && <Icon name="building" size={22} stroke={1.4}/>}
               </div>
               <div style={{ flex: 1, paddingTop: 4 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
@@ -310,11 +315,18 @@ export function CompaniesSection({ profile, isMe, onEdit }) {
                       background: B.bg, border: `1px solid ${B.line}`, borderRadius: 4,
                       overflow: 'hidden', display: 'flex', flexDirection: 'column',
                     }}>
-                      <Photo
-                        kind={js.photo_kind}
-                        label={js.title.toLowerCase()}
-                        height={132}
-                      />
+                      {js.photo_urls ? (
+                        <div style={{
+                          height: 132,
+                          background: `center/cover url("${js.photo_urls.medium || js.photo_urls.full}") no-repeat`,
+                        }}/>
+                      ) : (
+                        <Photo
+                          kind={js.photo_kind}
+                          label={js.title.toLowerCase()}
+                          height={132}
+                        />
+                      )}
                       <div style={{ padding: '10px 14px', flex: 1 }}>
                         <div className="serif" style={{
                           color: B.text, fontWeight: 600, fontSize: 14,
@@ -387,7 +399,14 @@ export function FeaturedSection({ profile, isMe, onEdit, navigate }) {
           gridColumn: 'span 2', gridRow: 'span 2',
           position: 'relative', borderRadius: 4, overflow: 'hidden',
         }}>
-          <Photo kind={hero.photo_kind} label={hero.title.toLowerCase()} height="100%"/>
+          {hero.photo_urls ? (
+            <div style={{
+              width: '100%', height: '100%',
+              background: `center/cover url("${hero.photo_urls.full || hero.photo_urls.medium}") no-repeat`,
+            }}/>
+          ) : (
+            <Photo kind={hero.photo_kind} label={hero.title.toLowerCase()} height="100%"/>
+          )}
           <div style={{
             position: 'absolute', left: 0, right: 0, bottom: 0,
             background: 'linear-gradient(transparent, rgba(0,0,0,0.7))',
@@ -402,13 +421,24 @@ export function FeaturedSection({ profile, isMe, onEdit, navigate }) {
           </div>
         </div>
         {rest.map((js) => (
-          <Photo
-            key={js.id}
-            kind={js.photo_kind}
-            label={js.title.toLowerCase()}
-            height="100%"
-            style={{ borderRadius: 4 }}
-          />
+          js.photo_urls ? (
+            <div
+              key={js.id}
+              title={js.title}
+              style={{
+                background: `center/cover url("${js.photo_urls.medium || js.photo_urls.full}") no-repeat`,
+                borderRadius: 4,
+              }}
+            />
+          ) : (
+            <Photo
+              key={js.id}
+              kind={js.photo_kind}
+              label={js.title.toLowerCase()}
+              height="100%"
+              style={{ borderRadius: 4 }}
+            />
+          )
         ))}
       </div>
     </section>
@@ -847,7 +877,12 @@ function EndorsersModal({ profileId, skill, onClose }) {
               onMouseEnter={ev => { ev.currentTarget.style.background = B.bg; }}
               onMouseLeave={ev => { ev.currentTarget.style.background = 'transparent'; }}
             >
-              <Avatar initials={e.initials} size={42} tone={e.avatar_tone}/>
+              <SmithAvatar
+                urls={e.avatar_urls}
+                initials={e.initials}
+                size={42}
+                tone={e.avatar_tone}
+              />
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div className="serif" style={{
                   color: B.text, fontWeight: 600, fontSize: 14, letterSpacing: '-0.01em',

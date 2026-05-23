@@ -255,14 +255,25 @@ function SearchBox() {
           )}
           {results?.companies.length > 0 && (
             <Section label="Companies">
-              {results.companies.map(c => (
-                <ResultRow
-                  key={`c${c.id}`}
-                  avatar={<div style={{ width:32, height:32, background: B.bg, border:`1px solid ${B.line}`, borderRadius: '50%', display:'flex', alignItems:'center', justifyContent:'center', color: B.accent }}><Icon name="building" size={15}/></div>}
-                  title={c.name}
-                  sub={c.type + (c.claimed ? '' : ' · unclaimed')}
-                />
-              ))}
+              {results.companies.map(c => {
+                const logoSrc = c.logo_urls?.thumb || c.logo_urls?.medium;
+                return (
+                  <ResultRow
+                    key={`c${c.id}`}
+                    avatar={logoSrc ? (
+                      <div style={{
+                        width: 32, height: 32, borderRadius: '50%',
+                        border: `1px solid ${B.line}`, flexShrink: 0,
+                        background: `center/cover url("${logoSrc}") no-repeat`,
+                      }}/>
+                    ) : (
+                      <div style={{ width:32, height:32, background: B.bg, border:`1px solid ${B.line}`, borderRadius: '50%', display:'flex', alignItems:'center', justifyContent:'center', color: B.accent }}><Icon name="building" size={15}/></div>
+                    )}
+                    title={c.name}
+                    sub={c.type + (c.claimed ? '' : ' · unclaimed')}
+                  />
+                );
+              })}
             </Section>
           )}
           {results?.jobsites.length > 0 && (
