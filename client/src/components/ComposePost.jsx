@@ -1,12 +1,24 @@
 // Smith — Post composer (modal)
 // Pops up from the feed page when the user taps "What are you building today?".
-// Lets them pick a post type, write the body, and (for project/photo posts)
-// pick up to 4 photo placeholder kinds and a project name.
+// Lets them pick a post type, write the body, attach up to 4 photos (from
+// device upload OR placeholder kinds), and add tags.
+//
+// Patch B: photos can now be uploaded from the user's device. Each uploaded
+// photo is processed server-side immediately on selection, getting back
+// storage keys we embed in the eventual post-create body.
+//
+// Photo model in this component:
+//   photos: [
+//     { kind: 'frame' },                           // placeholder
+//     { keys: {thumb,medium,full}, preview: url }  // uploaded
+//   ]
+// Cap at 4 total across both.
 
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { B } from '../lib/theme.js';
 import { Icon } from './Icon.jsx';
-import { Avatar, Photo } from './Primitives.jsx';
+import { Photo } from './Primitives.jsx';
+import { SmithAvatar } from './SmithAvatar.jsx';
 import { api } from '../lib/api.js';
 
 const PHOTO_KINDS = [
@@ -21,23 +33,73 @@ const TYPES = [
   { k: 'milestone', label: 'Milestone',      icon: 'award',     hint: 'A career or project milestone.' },
 ];
 
+const MAX_PHOTOS = 4;
+
 export function ComposePost({ user, onClose, onPosted }) {
   const [type, setType] = useState('project');
   const [body, setBody] = useState('');
   const [projectName, setProjectName] = useState('');
   const [milestone, setMilestone] = useState('');
+  // photos: array of { kind } or { keys, preview }. Mixed is fine.
   const [photos, setPhotos] = useState([]);
+  const [uploading, setUploading] = useState(0);  // count of in-flight uploads
   const [tagInput, setTagInput] = useState('');
   const [tags, setTags] = useState([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
+  const fileInputRef = useRef(null);
 
-  const togglePhoto = (kind) => {
-    setPhotos(p =>
-      p.includes(kind)
-        ? p.filter(x => x !== kind)
-        : (p.length < 4 ? [...p, kind] : p)
-    );
+  // Count the photos currently occupying slots — including in-flight uploads
+  // (which haven't yet returned keys but reserve a slot).
+  const filledSlots = photos.length + uploading;
+  const remainingSlots = Math.max(0, MAX_PHOTOS - filledSlots);
+
+  // Upload a single file → server returns {photo: {keys, urls}}; we add it
+  // to photos.  Preview uses the medium URL while we wait. The medium URL
+  // works immediately because R2 makes objects available right away.
+  const uploadFile = async (file) => {
+    setError(null);
+    setUploading(n => n + 1);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const data = await api.upload('/photos/post', fd);
+      setPhotos(p => [...p, {
+        keys: data.photo.keys,
+        preview: data.photo.urls?.medium || data.photo.urls?.full,
+      }]);
+    } catch (e) {
+      setError(e.data?.error || 'Photo upload failed.');
+    } finally {
+      setUploading(n => n - 1);
+    }
+  };
+
+  const onFilesPicked = async (e) => {
+    const files = Array.from(e.target.files || []);
+    // Reset the input so picking the same file twice in a row still works.
+    if (fileInputRef.current) fileInputRef.current.value = '';
+    if (!files.length) return;
+    // Take only enough to fit. Upload sequentially so failures are clear.
+    const toUpload = files.slice(0, remainingSlots);
+    for (const f of toUpload) {
+      await uploadFile(f);
+    }
+  };
+
+  // Toggle a placeholder kind into/out of the photos array. Each placeholder
+  // slot is a separate entry; toggling removes that specific entry.
+  const togglePlaceholder = (kind) => {
+    const idx = photos.findIndex(p => p.kind === kind && !p.keys);
+    if (idx >= 0) {
+      setPhotos(p => p.filter((_, i) => i !== idx));
+    } else if (filledSlots < MAX_PHOTOS) {
+      setPhotos(p => [...p, { kind }]);
+    }
+  };
+
+  const removePhotoAt = (i) => {
+    setPhotos(p => p.filter((_, x) => x !== i));
   };
 
   const addTag = () => {
@@ -49,13 +111,20 @@ export function ComposePost({ user, onClose, onPosted }) {
 
   const submit = async () => {
     if (!body.trim()) return;
+    // Don't submit while uploads are in flight — the user is still building.
+    if (uploading > 0) return;
     setBusy(true);
     setError(null);
     try {
+      // Strip preview URL from payload; server only needs keys (or kind).
+      const photoPayload = photos.map(p => p.keys
+        ? { keys: p.keys }
+        : { kind: p.kind }
+      );
       const payload = {
         type,
         body: body.trim(),
-        photos,
+        photos: photoPayload,
         tags,
       };
       if (projectName.trim()) payload.project_name = projectName.trim();
@@ -101,7 +170,12 @@ export function ComposePost({ user, onClose, onPosted }) {
           padding: '20px 28px', overflowY: 'auto', flex: 1,
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
-            <Avatar initials={initials} size={42} tone={user?.avatar_tone || 'rust'}/>
+            <SmithAvatar
+              urls={user?.avatar_urls}
+              initials={initials}
+              size={42}
+              tone={user?.avatar_tone || 'rust'}
+            />
             <div>
               <div className="serif" style={{
                 color: B.text, fontWeight: 600, fontSize: 15, letterSpacing: '-0.01em',
@@ -155,22 +229,126 @@ export function ComposePost({ user, onClose, onPosted }) {
                 placeholder="Project name (optional)"
                 style={smallInput}
               />
+
+              {/* ── Photos section ─────────────────────────────────────
+                  Two ways to attach: real upload from device (primary), or
+                  placeholder kind from the grid (secondary, mostly for posts
+                  without a real photo handy). Mix freely up to 4 total. */}
               <div style={{ marginTop: 14 }}>
-                <div style={{ color: B.faint, fontSize: 11, fontStyle: 'italic', marginBottom: 8 }}>
-                  Pick photos · {photos.length}/4
+                <div style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                  marginBottom: 8,
+                }}>
+                  <span style={{ color: B.faint, fontSize: 11, fontStyle: 'italic' }}>
+                    Photos · {filledSlots}/{MAX_PHOTOS}
+                  </span>
+                </div>
+
+                {/* Upload row */}
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  multiple
+                  accept="image/jpeg,image/png,image/webp,image/heic,image/heif"
+                  onChange={onFilesPicked}
+                  style={{ display: 'none' }}
+                />
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={remainingSlots === 0 || uploading > 0}
+                  style={{
+                    width: '100%', padding: '12px',
+                    background: B.bg, border: `1px dashed ${B.line}`, borderRadius: 4,
+                    color: remainingSlots === 0 ? B.faint : B.text,
+                    fontSize: 13, fontWeight: 600,
+                    cursor: remainingSlots === 0 || uploading > 0 ? 'not-allowed' : 'pointer',
+                    display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+                  }}>
+                  <Icon name="image" size={16} style={{ color: B.accent }}/>
+                  {uploading > 0
+                    ? `Uploading ${uploading} photo${uploading === 1 ? '' : 's'}…`
+                    : remainingSlots === 0
+                      ? 'Photo limit reached'
+                      : `Upload photos from device${remainingSlots < MAX_PHOTOS ? ` (${remainingSlots} more)` : ''}`}
+                </button>
+
+                {/* Selected photos thumbnail strip — both uploads and
+                    placeholder kinds appear here so the user sees one row of
+                    "what I'm posting". X-button removes either kind. */}
+                {photos.length > 0 && (
+                  <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: `repeat(${Math.min(photos.length, 4)}, 1fr)`,
+                    gap: 6, marginTop: 10,
+                  }}>
+                    {photos.map((p, i) => (
+                      <div key={i} style={{
+                        position: 'relative',
+                        aspectRatio: '16/9',
+                        overflow: 'hidden', borderRadius: 4,
+                        boxShadow: `0 0 0 2px ${B.accent}`,
+                      }}>
+                        {p.keys ? (
+                          <img
+                            src={p.preview}
+                            alt=""
+                            style={{
+                              width: '100%', height: '100%',
+                              objectFit: 'cover', display: 'block',
+                            }}
+                          />
+                        ) : (
+                          <Photo kind={p.kind} label={p.kind} height="100%"/>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => removePhotoAt(i)}
+                          title="Remove"
+                          style={{
+                            position: 'absolute', top: 4, right: 4,
+                            width: 20, height: 20,
+                            background: 'rgba(42,31,23,0.7)',
+                            border: 'none', borderRadius: '50%',
+                            color: '#fff', cursor: 'pointer',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            padding: 0,
+                          }}>
+                          <Icon name="x" size={12}/>
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Placeholder kinds — kept as a fallback for posts without
+                    a real photo (e.g., posts written from someone's office). */}
+                <div style={{
+                  color: B.faint, fontSize: 11, fontStyle: 'italic',
+                  marginTop: 14, marginBottom: 6,
+                }}>
+                  Or pick a placeholder
                 </div>
                 <div style={{
                   display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 4,
                 }}>
                   {PHOTO_KINDS.map(k => {
-                    const sel = photos.includes(k);
+                    const sel = photos.some(p => p.kind === k && !p.keys);
+                    const disabled = !sel && remainingSlots === 0;
                     return (
-                      <button key={k} onClick={() => togglePhoto(k)} style={{
-                        background: 'transparent', border: 'none', padding: 0, cursor: 'pointer',
-                        position: 'relative', aspectRatio: '1', overflow: 'hidden',
-                        borderRadius: 4,
-                        boxShadow: sel ? `0 0 0 2px ${B.accent}` : 'none',
-                      }}>
+                      <button
+                        key={k}
+                        type="button"
+                        onClick={() => togglePlaceholder(k)}
+                        disabled={disabled}
+                        style={{
+                          background: 'transparent', border: 'none', padding: 0,
+                          cursor: disabled ? 'not-allowed' : 'pointer',
+                          position: 'relative', aspectRatio: '1', overflow: 'hidden',
+                          borderRadius: 4,
+                          boxShadow: sel ? `0 0 0 2px ${B.accent}` : 'none',
+                          opacity: disabled ? 0.45 : 1,
+                        }}>
                         <Photo kind={k} label={k} height="100%"/>
                         {sel && (
                           <div style={{
@@ -246,16 +424,16 @@ export function ComposePost({ user, onClose, onPosted }) {
           }}>Cancel</button>
           <button
             onClick={submit}
-            disabled={busy || !body.trim()}
+            disabled={busy || !body.trim() || uploading > 0}
             style={{
-              background: body.trim() ? B.text : B.surface2,
-              border: body.trim() ? 'none' : `1px solid ${B.line}`,
-              color: body.trim() ? B.surface : B.faint,
+              background: body.trim() && uploading === 0 ? B.text : B.surface2,
+              border: body.trim() && uploading === 0 ? 'none' : `1px solid ${B.line}`,
+              color: body.trim() && uploading === 0 ? B.surface : B.faint,
               padding: '10px 22px', borderRadius: 100, fontSize: 13, fontWeight: 600,
-              cursor: body.trim() && !busy ? 'pointer' : 'not-allowed',
+              cursor: body.trim() && uploading === 0 && !busy ? 'pointer' : 'not-allowed',
               display: 'inline-flex', alignItems: 'center', gap: 6,
             }}>
-            {busy ? 'Posting…' : 'Post'}
+            {busy ? 'Posting…' : uploading > 0 ? 'Uploading…' : 'Post'}
           </button>
         </div>
       </div>

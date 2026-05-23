@@ -2,29 +2,29 @@
 // Endpoints:
 //   GET    /api/profiles/me            — full profile object for the signed-in user
 //   GET    /api/profiles/:id           — public profile of any user (incl. self)
-//   PATCH  /api/profiles/me            — edit header fields (name, headline, location, about, ...)
+//   PATCH  /api/profiles/me            — edit header fields
 //   POST   /api/profiles/me/trades     — replace trade list (atomic)
 //   POST   /api/profiles/me/licenses   — add a license
 //   DELETE /api/profiles/me/licenses/:lid
 //   POST   /api/profiles/me/skills     — replace skill list
 //   POST   /api/profiles/me/skills/:sid/endorse
-//   GET    /api/profiles/me/strength   — % complete + checklist (matches design widget)
+//   GET    /api/profiles/me/strength   — % complete + checklist
+//
+// Patch B: jobsite rows now carry photo_urls (when uploaded); company rows
+// in work_history carry company_logo_urls (when uploaded). The frontend
+// prefers uploaded photos and falls back to placeholder photo_kind / logo_tone.
 
 import { Router } from 'express';
 import { q, tx } from '../db.js';
 import { requireAuth } from '../middleware.js';
 import { deleteDocFile } from './credential-docs.js';
+import { publicUrl } from '../storage.js';
 
 const router = Router();
 
-// ────────────────────────────────────────────────────────────────────────────
-// Helpers
-// ────────────────────────────────────────────────────────────────────────────
-
-// avatar_url and cover_url are stored as JSON strings like
-// { "thumb": "users/42/avatar-thumb-abc.webp", ... }. We parse them and
-// rewrite each variant to a /api/files URL so the frontend can render them
-// without knowing storage internals.
+// avatar_url, cover_url, jobsite photo_url, company logo_url are all stored
+// as JSON strings like { "thumb": "<key>", ... }. parseUrls() turns that
+// into { thumb, medium, full } of URLs the frontend can render.
 function parseUrls(stored) {
   if (!stored) return null;
   let parsed = stored;
@@ -34,20 +34,11 @@ function parseUrls(stored) {
   if (typeof parsed !== 'object' || !parsed) return null;
   const out = {};
   for (const [size, key] of Object.entries(parsed)) {
-    if (typeof key === 'string') {
-      // Encode each path segment, keep the slashes structural.
-      const encoded = key.split('/').map(encodeURIComponent).join('/');
-      out[size] = `/api/files/${encoded}`;
-    }
+    if (typeof key === 'string') out[size] = publicUrl(key);
   }
   return out;
 }
 
-// ────────────────────────────────────────────────────────────────────────────
-// loadProfile — assembles the full profile object the frontend uses everywhere.
-// Keeping this in one function means the profile page, feed sidebar, and
-// network card all see consistent shapes.
-// ────────────────────────────────────────────────────────────────────────────
 async function loadProfile(userId, viewerId) {
   const userP = q(
     `SELECT id, email, email_verified, first_name, last_name, headline, location, about,
@@ -71,18 +62,22 @@ async function loadProfile(userId, viewerId) {
        FROM licenses WHERE user_id = $1 ORDER BY position ASC, id ASC`,
     [userId]
   );
+  // Pull company.logo_url so the work-history card can render an uploaded logo.
   const workP = q(
     `SELECT wh.id, wh.role, wh.from_year, wh.to_year, wh.is_current, wh.position,
             c.id as company_id, c.name as company_name, c.type as company_type,
-            c.logo_tone as company_logo_tone, c.claimed_by IS NOT NULL as company_claimed
+            c.logo_tone as company_logo_tone,
+            c.logo_url  as company_logo_url,
+            c.claimed_by IS NOT NULL as company_claimed
        FROM work_history wh JOIN companies c ON c.id = wh.company_id
       WHERE wh.user_id = $1
       ORDER BY wh.position ASC, wh.id DESC`,
     [userId]
   );
+  // Include jobsite.photo_url so cards can render the uploaded photo.
   const jobsitesP = q(
     `SELECT js.id, js.work_history_id, js.title, js.kind, js.location, js.duration,
-            js.photo_kind, js.is_featured, js.position
+            js.photo_kind, js.photo_url, js.is_featured, js.position
        FROM jobsites js JOIN work_history wh ON wh.id = js.work_history_id
       WHERE wh.user_id = $1
       ORDER BY js.position ASC, js.id ASC`,
@@ -105,7 +100,6 @@ async function loadProfile(userId, viewerId) {
     [userId]
   );
 
-  // Connection status between viewer and target (for "Connect" / "Connected" buttons).
   let connection = null;
   if (viewerId && viewerId !== userId) {
     const [a, b] = viewerId < userId ? [viewerId, userId] : [userId, viewerId];
@@ -123,15 +117,33 @@ async function loadProfile(userId, viewerId) {
   if (!user.rows.length) return null;
   const u = user.rows[0];
 
-  // Stitch jobsites into their work_history entries.
-  const workById = new Map(work.rows.map(w => [w.id, { ...w, jobsites: [] }]));
+  // Stitch jobsites into their work_history entries. Each jobsite gets
+  // photo_urls; each work_history row gets company_logo_urls.
+  const workById = new Map(work.rows.map(w => [w.id, {
+    ...w,
+    company_logo_urls: parseUrls(w.company_logo_url),
+    jobsites: [],
+  }]));
   for (const js of jobsites.rows) {
-    if (workById.has(js.work_history_id)) workById.get(js.work_history_id).jobsites.push(js);
+    if (workById.has(js.work_history_id)) {
+      workById.get(js.work_history_id).jobsites.push({
+        id: js.id,
+        work_history_id: js.work_history_id,
+        title: js.title,
+        kind: js.kind,
+        location: js.location,
+        duration: js.duration,
+        photo_kind: js.photo_kind,
+        photo_urls: parseUrls(js.photo_url),
+        is_featured: js.is_featured,
+        position: js.position,
+      });
+    }
   }
 
   return {
     id: u.id,
-    email: viewerId === userId ? u.email : undefined,  // keep email private
+    email: viewerId === userId ? u.email : undefined,
     name: `${u.first_name} ${u.last_name}`.trim() || 'Unnamed',
     initials: ((u.first_name[0] || '') + (u.last_name[0] || '')).toUpperCase() || 'U',
     first_name: u.first_name,
@@ -173,9 +185,6 @@ async function loadProfile(userId, viewerId) {
     },
     trades: trades.rows,
     licenses: licenses.rows.map(l => {
-      // Doc URL only goes out to the owner, or to anyone if share_public is on.
-      // Either way we send back share_public so the edit UI can show the toggle
-      // state when the owner is viewing.
       const isOwner = !!viewerId && viewerId === userId;
       const showDoc = isOwner || l.share_public;
       return {
@@ -188,21 +197,15 @@ async function loadProfile(userId, viewerId) {
         share_public: l.share_public,
         doc_url: (showDoc && l.doc_url) ? `/api/credential-docs/${l.doc_url}` : null,
         doc_mime: showDoc ? l.doc_mime : null,
-        // Owner needs to know there IS a doc even if they wanted it private;
-        // others don't need the signal.
         has_doc: !!l.doc_url && (isOwner || l.share_public),
       };
     }),
     work_history: [...workById.values()].sort((a, b) => a.position - b.position),
     skills: skills.rows,
     network_size: networkSize.rows[0].n,
-    connection, // null | { status, requested_by }
+    connection,
   };
 }
-
-// ────────────────────────────────────────────────────────────────────────────
-// Routes
-// ────────────────────────────────────────────────────────────────────────────
 
 router.get('/me', requireAuth, async (req, res) => {
   const profile = await loadProfile(req.userId, req.userId);
@@ -233,13 +236,10 @@ router.patch('/me', requireAuth, async (req, res) => {
   if (Object.keys(updates).length === 0)
     return res.status(400).json({ error: 'No fields to update' });
 
-  // If the insurance doc is being changed, capture the old filename so we
-  // can clean it up after the UPDATE succeeds.
   let oldInsDoc = null;
   if ('insurance_doc_url' in updates) {
     const cur = await q(`SELECT insurance_doc_url FROM users WHERE id = $1`, [req.userId]);
     oldInsDoc = cur.rows[0]?.insurance_doc_url;
-    // Touch the uploaded_at timestamp alongside the doc change.
     updates.insurance_doc_uploaded_at = updates.insurance_doc_url ? new Date() : null;
   }
 
@@ -255,8 +255,6 @@ router.patch('/me', requireAuth, async (req, res) => {
   res.json({ profile });
 });
 
-// Replace the user's trade list atomically. Body: { trades: [{ name, years }, ...] }
-// First entry becomes the primary trade. Up to 6 (matches "Up to 6" UI hint).
 router.post('/me/trades', requireAuth, async (req, res) => {
   const list = Array.isArray(req.body?.trades) ? req.body.trades.slice(0, 6) : [];
   await tx(async (c) => {
@@ -264,7 +262,6 @@ router.post('/me/trades', requireAuth, async (req, res) => {
     for (let i = 0; i < list.length; i++) {
       const { name, years = 0 } = list[i] || {};
       if (!name) continue;
-      // Find or create canonical trade row.
       let { rows } = await c.query('SELECT id FROM trades WHERE LOWER(name) = LOWER($1)', [name]);
       let tradeId = rows[0]?.id;
       if (!tradeId) {
@@ -285,9 +282,6 @@ router.post('/me/trades', requireAuth, async (req, res) => {
   res.json({ profile });
 });
 
-// Add a license. Body: { name, number, expiration, verified?, doc_url?,
-// doc_mime?, share_public? }. The doc fields are optional; populate them
-// by first uploading via POST /api/credential-docs to get the filename.
 router.post('/me/licenses', requireAuth, async (req, res) => {
   const {
     name, number, expiration, verified = false,
@@ -315,14 +309,10 @@ router.post('/me/licenses', requireAuth, async (req, res) => {
   res.status(201).json({ license: rows[0] });
 });
 
-// Patch an existing license — used to toggle share_public, attach a newly
-// uploaded doc, or update name/number/expiration after creation.
-// Whitelist of fields so a user can't write anywhere they shouldn't.
 router.patch('/me/licenses/:lid', requireAuth, async (req, res) => {
   const lid = parseInt(req.params.lid, 10);
   if (!Number.isFinite(lid)) return res.status(400).json({ error: 'Invalid id' });
 
-  // Look up current state — needed to clean up old doc file if it's being replaced.
   const cur = await q(
     `SELECT doc_url FROM licenses WHERE id = $1 AND user_id = $2`,
     [lid, req.userId]
@@ -336,7 +326,6 @@ router.patch('/me/licenses/:lid', requireAuth, async (req, res) => {
   if (Object.keys(updates).length === 0)
     return res.status(400).json({ error: 'No fields to update' });
 
-  // If a new doc is being attached or doc is being cleared, also touch doc_uploaded_at.
   if ('doc_url' in updates) updates.doc_uploaded_at = updates.doc_url ? new Date() : null;
 
   const sets = Object.keys(updates).map((k, i) => `${k} = $${i + 3}`);
@@ -346,7 +335,6 @@ router.patch('/me/licenses/:lid', requireAuth, async (req, res) => {
     vals
   );
 
-  // If doc was replaced or cleared, delete the old file from disk.
   if ('doc_url' in updates && oldDoc && oldDoc !== updates.doc_url) {
     deleteDocFile(oldDoc, req.userId);
   }
@@ -357,7 +345,6 @@ router.patch('/me/licenses/:lid', requireAuth, async (req, res) => {
 router.delete('/me/licenses/:lid', requireAuth, async (req, res) => {
   const lid = parseInt(req.params.lid, 10);
   if (!Number.isFinite(lid)) return res.status(400).json({ error: 'Invalid id' });
-  // Look up the doc filename before deleting so we can also clean up disk.
   const cur = await q(
     `SELECT doc_url FROM licenses WHERE id = $1 AND user_id = $2`,
     [lid, req.userId]
@@ -368,7 +355,6 @@ router.delete('/me/licenses/:lid', requireAuth, async (req, res) => {
   res.json({ ok: true });
 });
 
-// Replace the skills list. Body: { skills: [{ name, level }, ...] }
 router.post('/me/skills', requireAuth, async (req, res) => {
   const list = Array.isArray(req.body?.skills) ? req.body.skills : [];
   await tx(async (c) => {
@@ -387,17 +373,10 @@ router.post('/me/skills', requireAuth, async (req, res) => {
   res.json({ profile });
 });
 
-// Endorse a skill. Idempotent — repeated POSTs don't double up. Fires a
-// notification to the skill's owner the first time (skips on no-ops and
-// self-endorsement).
-//
-// Returns the new endorsement count + whether the viewer is endorsing,
-// so the UI can update without re-fetching the whole profile.
 router.post('/:id/skills/:sid/endorse', requireAuth, async (req, res) => {
   const sid = parseInt(req.params.sid, 10);
   if (!Number.isFinite(sid)) return res.status(400).json({ error: 'Invalid skill id' });
 
-  // Look up the skill to find its owner — needed for notification + self-check.
   const skillRes = await q(
     `SELECT s.id, s.name, s.user_id AS owner_id
        FROM skills s WHERE s.id = $1`,
@@ -410,9 +389,6 @@ router.post('/:id/skills/:sid/endorse', requireAuth, async (req, res) => {
     return res.status(400).json({ error: 'Cannot endorse your own skills' });
   }
 
-  // Insert. The ON CONFLICT clause makes this idempotent. We use RETURNING so
-  // we can tell whether this was a new endorsement (worth notifying) or a
-  // duplicate click (silent no-op).
   const ins = await q(
     `INSERT INTO skill_endorsements (skill_id, endorser_id) VALUES ($1, $2)
        ON CONFLICT DO NOTHING
@@ -421,7 +397,6 @@ router.post('/:id/skills/:sid/endorse', requireAuth, async (req, res) => {
   );
 
   if (ins.rowCount > 0) {
-    // First endorsement from this viewer for this skill — fire a notification.
     await q(
       `INSERT INTO notifications (user_id, kind, actor_id, subject_id, body)
          VALUES ($1, 'skill_endorse', $2, $3, $4)`,
@@ -436,8 +411,6 @@ router.post('/:id/skills/:sid/endorse', requireAuth, async (req, res) => {
   res.json({ ok: true, endorsed_by_me: true, endorsements: count.rows[0].n });
 });
 
-// Un-endorse — toggle off. No notification (don't pester the user when
-// someone changes their mind).
 router.delete('/:id/skills/:sid/endorse', requireAuth, async (req, res) => {
   const sid = parseInt(req.params.sid, 10);
   if (!Number.isFinite(sid)) return res.status(400).json({ error: 'Invalid skill id' });
@@ -454,8 +427,6 @@ router.delete('/:id/skills/:sid/endorse', requireAuth, async (req, res) => {
   res.json({ ok: true, endorsed_by_me: false, endorsements: count.rows[0].n });
 });
 
-// List the people who've endorsed a given skill — drives the modal that
-// pops on row click. Ordered most-recent-first.
 router.get('/:id/skills/:sid/endorsers', requireAuth, async (req, res) => {
   const sid = parseInt(req.params.sid, 10);
   if (!Number.isFinite(sid)) return res.status(400).json({ error: 'Invalid skill id' });
@@ -482,7 +453,6 @@ router.get('/:id/skills/:sid/endorsers', requireAuth, async (req, res) => {
   });
 });
 
-// Profile-strength widget — matches the "72% / Add 2 more credentials / Add 5+ project photos" UI.
 router.get('/me/strength', requireAuth, async (req, res) => {
   const u = req.user;
   const counts = await q(
@@ -496,12 +466,11 @@ router.get('/me/strength', requireAuth, async (req, res) => {
   const c = counts.rows[0];
   const checklist = [
     { key: 'photo',     label: 'Photo & cover added',      done: !!u.first_name },
-    { key: 'about',     label: 'Headline & about written', done: false },          // populated below
+    { key: 'about',     label: 'Headline & about written', done: false },
     { key: 'trades',    label: 'Trades selected',          done: c.trades > 0 },
     { key: 'licenses',  label: 'Add 2 more credentials',   done: c.licenses >= 3 },
     { key: 'projects',  label: 'Add 5+ project photos',    done: c.jobsites >= 5 },
   ];
-  // Pull headline/about to flip the second checkbox.
   const meta = await q(`SELECT headline, about FROM users WHERE id = $1`, [req.userId]);
   checklist[1].done = !!(meta.rows[0]?.headline && meta.rows[0]?.about);
   const done = checklist.filter(x => x.done).length;

@@ -1,11 +1,23 @@
 // Smith — Feed post card
 // Ported from FeedPostB. Like + comment are wired live; we expand a comments
 // thread inline when the comment button is tapped.
+//
+// Patch B: post photos can be uploaded from the user's device. The post.photos
+// array now contains entries shaped like:
+//   { kind: 'frame', photo_urls: null }                     // placeholder
+//   { kind: 'frame', photo_urls: {thumb,medium,full} }      // uploaded (kind retained as fallback)
+//
+// Uploaded photos render as <img> letterboxed 16:9; placeholder kinds fall
+// back to the existing gradient Photo component.
+//
+// Author + comment avatars also upgraded to SmithAvatar so uploaded profile
+// photos render through the feed.
 
 import React, { useState } from 'react';
 import { B } from '../lib/theme.js';
 import { Icon } from './Icon.jsx';
-import { Avatar, Photo } from './Primitives.jsx';
+import { Photo } from './Primitives.jsx';
+import { SmithAvatar } from './SmithAvatar.jsx';
 import { api } from '../lib/api.js';
 import { useAuth } from '../lib/AuthContext.jsx';
 
@@ -42,7 +54,8 @@ export function FeedPost({ post, onChange, onAuthorClick }) {
           background: 'transparent', border: 'none', padding: 0, cursor: 'pointer',
           borderRadius: '50%',
         }}>
-          <Avatar
+          <SmithAvatar
+            urls={post.author.avatar_urls}
             initials={post.author.initials}
             size={44}
             tone={post.author.avatar_tone}
@@ -83,19 +96,10 @@ export function FeedPost({ post, onChange, onAuthorClick }) {
       </div>
 
       {post.photos?.length > 0 && (
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: post.photos.length === 1 ? '1fr' : `repeat(${Math.min(post.photos.length, 3)}, 1fr)`,
-          gap: 2,
-        }}>
-          {post.photos.map((p, i) => (
-            <Photo
-              key={i} kind={p}
-              label={post.project_name ? post.project_name.toLowerCase() : p}
-              height={post.photos.length === 1 ? 380 : 240}
-            />
-          ))}
-        </div>
+        <PostPhotoGrid
+          photos={post.photos}
+          projectName={post.project_name}
+        />
       )}
 
       {post.milestone && (
@@ -146,6 +150,54 @@ export function FeedPost({ post, onChange, onAuthorClick }) {
   );
 }
 
+// ── Photo grid ────────────────────────────────────────────────────────
+// Each photo is either an uploaded image (rendered <img> letterboxed 16:9)
+// or a placeholder kind (rendered gradient via <Photo>). Mixed grids work
+// — same row, same aspect ratio for visual coherence.
+//
+// Layout:
+//   1 photo   → full width, taller frame
+//   2-4 photos → side-by-side columns, 16:9 each
+function PostPhotoGrid({ photos, projectName }) {
+  const cols = Math.min(photos.length, 3);
+  const isSingle = photos.length === 1;
+
+  return (
+    <div style={{
+      display: 'grid',
+      gridTemplateColumns: isSingle ? '1fr' : `repeat(${cols}, 1fr)`,
+      gap: 2,
+    }}>
+      {photos.map((p, i) => (
+        <div key={i} style={{
+          aspectRatio: isSingle ? '16/9' : '4/3',
+          overflow: 'hidden',
+          background: B.bg,
+        }}>
+          {p.photo_urls ? (
+            <img
+              src={p.photo_urls.medium || p.photo_urls.full}
+              alt={projectName || p.kind || ''}
+              loading="lazy"
+              style={{
+                width: '100%', height: '100%',
+                objectFit: 'cover',
+                display: 'block',
+              }}
+            />
+          ) : (
+            <Photo
+              kind={p.kind}
+              label={projectName ? projectName.toLowerCase() : p.kind}
+              height="100%"
+            />
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // ── Comment thread (loads on demand) ─────────────────────────────────
 function CommentThread({ postId, author, onAdded }) {
   const [comments, setComments] = useState(null);
@@ -174,6 +226,7 @@ function CommentThread({ postId, author, onAdded }) {
           name: `${author?.first_name || ''} ${author?.last_name || ''}`.trim(),
           initials,
           avatar_tone: author?.avatar_tone || 'wood',
+          avatar_urls: author?.avatar_urls || null,
           headline: '',
         },
       }]);
@@ -201,7 +254,8 @@ function CommentThread({ postId, author, onAdded }) {
         <div key={c.id} style={{
           display: 'flex', gap: 10, alignItems: 'flex-start', marginBottom: 12,
         }}>
-          <Avatar
+          <SmithAvatar
+            urls={c.author.avatar_urls}
             initials={c.author.initials}
             size={32}
             tone={c.author.avatar_tone}
@@ -229,7 +283,8 @@ function CommentThread({ postId, author, onAdded }) {
         display: 'flex', gap: 10, alignItems: 'center',
         marginTop: comments?.length ? 12 : 0,
       }}>
-        <Avatar
+        <SmithAvatar
+          urls={author?.avatar_urls}
           initials={((author?.first_name?.[0] || '') + (author?.last_name?.[0] || '')).toUpperCase()}
           size={32}
           tone={author?.avatar_tone || 'wood'}

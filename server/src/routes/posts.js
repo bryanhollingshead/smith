@@ -4,10 +4,18 @@
 //   - type: 'project' | 'hiring' | 'milestone' | 'photo'
 //   - body, photos[], tags[], milestone, project_name
 //   - stats: { likes, comments }, plus liked_by_me for button state.
+//
+// Patch B: each entry in `photos[]` now optionally carries an uploaded photo
+// alongside (or instead of) the placeholder photo_kind. The frontend renders
+// the upload when present and falls back to the kind otherwise. We accept
+// uploads as { kind?, photo_url? } pairs on create — the upload itself
+// goes through POST /api/photos/post first, which returns the key shape
+// the client embeds here.
 
 import { Router } from 'express';
 import { q, tx } from '../db.js';
 import { requireAuth } from '../middleware.js';
+import { publicUrl } from '../storage.js';
 
 const router = Router();
 
@@ -16,13 +24,39 @@ const PHOTO_KINDS = new Set([
   'blueprint','tile','kitchen','workshop',
 ]);
 
+// Parse a JSON-blob storage key bundle to URLs. Same as profiles.js's
+// parseUrls. Defined locally for module isolation.
+function parseUrls(stored) {
+  if (!stored) return null;
+  let parsed = stored;
+  if (typeof stored === 'string') {
+    try { parsed = JSON.parse(stored); } catch { return null; }
+  }
+  if (typeof parsed !== 'object' || !parsed) return null;
+  const out = {};
+  for (const [size, key] of Object.entries(parsed)) {
+    if (typeof key === 'string') out[size] = publicUrl(key);
+  }
+  return out;
+}
+
 // Build the feed-row shape the frontend renders.
+// json_agg + json_build_object lets us return one row per post with the
+// photo list as a structured array, so we can include photo_url alongside
+// photo_kind. The COALESCE handles the no-photos case.
 const FEED_SQL = (extraWhere = '') => `
   SELECT p.id, p.type, p.body, p.project_name, p.milestone, p.created_at,
          u.id   AS author_id,
-         u.first_name, u.last_name, u.headline, u.avatar_tone, u.verified_smith,
-         (SELECT array_agg(pp.photo_kind ORDER BY pp.position)
-            FROM post_photos pp WHERE pp.post_id = p.id) AS photos,
+         u.first_name, u.last_name, u.headline, u.avatar_tone, u.avatar_url, u.verified_smith,
+         COALESCE(
+           (SELECT json_agg(
+                     json_build_object(
+                       'kind', pp.photo_kind,
+                       'photo_url', pp.photo_url
+                     ) ORDER BY pp.position)
+              FROM post_photos pp WHERE pp.post_id = p.id),
+           '[]'::json
+         ) AS photos,
          (SELECT array_agg(pt.tag ORDER BY pt.tag) FROM post_tags pt WHERE pt.post_id = p.id) AS tags,
          (SELECT COUNT(*)::int FROM post_likes pl WHERE pl.post_id = p.id) AS likes,
          (SELECT COUNT(*)::int FROM post_comments pc WHERE pc.post_id = p.id) AS comments,
@@ -61,6 +95,13 @@ router.get('/by-user/:id', requireAuth, async (req, res) => {
 });
 
 function shapePost(r) {
+  // Map each photo row to the client shape: kind for placeholder render,
+  // photo_urls for uploaded photo render.
+  const photos = (r.photos || []).map(p => ({
+    kind: p.kind,
+    photo_urls: parseUrls(p.photo_url),
+  }));
+
   return {
     id: r.id,
     type: r.type,
@@ -74,16 +115,28 @@ function shapePost(r) {
       initials: ((r.first_name[0] || '') + (r.last_name[0] || '')).toUpperCase(),
       headline: r.headline,
       avatar_tone: r.avatar_tone,
+      avatar_urls: parseUrls(r.avatar_url),
       verified: r.verified_smith,
     },
-    photos: r.photos || [],
+    photos,
     tags: r.tags || [],
     stats: { likes: r.likes, comments: r.comments, liked_by_me: r.liked_by_me },
   };
 }
 
 // POST /api/posts
-// Body: { type, body, project_name?, milestone?, photos?: ['frame','wood'], tags?: ['Hiring'] }
+// Body: {
+//   type, body, project_name?, milestone?,
+//   photos?: [
+//     { kind: 'frame' }                                            // placeholder
+//     | { keys: { thumb, medium, full } }                          // uploaded (from /api/photos/post)
+//     | { kind: 'frame', keys: { thumb, medium, full } }           // both (upload wins)
+//   ],
+//   tags?: ['Hiring']
+// }
+//
+// For backward compat we also accept the old `photos: ['frame','wood']`
+// shape (array of strings) and silently coerce it into [{kind: 'frame'}, ...].
 router.post('/', requireAuth, async (req, res) => {
   const { type = 'project', body, project_name = null, milestone = null,
           photos = [], tags = [] } = req.body || {};
@@ -91,8 +144,33 @@ router.post('/', requireAuth, async (req, res) => {
   if (!['project', 'hiring', 'milestone', 'photo'].includes(type))
     return res.status(400).json({ error: 'invalid type' });
 
-  const cleanPhotos = (Array.isArray(photos) ? photos : [])
-    .filter(p => PHOTO_KINDS.has(p)).slice(0, 4);
+  // Normalize photos: accept ['frame', 'wood'] OR [{kind, keys}].
+  // Cap at 4 per post.
+  const rawPhotos = Array.isArray(photos) ? photos.slice(0, 4) : [];
+  const cleanPhotos = rawPhotos.map(p => {
+    if (typeof p === 'string') {
+      return PHOTO_KINDS.has(p) ? { kind: p, photo_url: null } : null;
+    }
+    if (p && typeof p === 'object') {
+      const kind = (typeof p.kind === 'string' && PHOTO_KINDS.has(p.kind)) ? p.kind : null;
+      // Validate `keys` if present — must be an object with at least medium or full.
+      let photo_url = null;
+      if (p.keys && typeof p.keys === 'object'
+          && typeof p.keys.medium === 'string') {
+        // Stringify a clean copy: only thumb/medium/full string keys allowed.
+        const clean = {};
+        for (const k of ['thumb', 'medium', 'full']) {
+          if (typeof p.keys[k] === 'string') clean[k] = p.keys[k];
+        }
+        if (Object.keys(clean).length > 0) photo_url = JSON.stringify(clean);
+      }
+      // At least one of kind/photo_url must be present, otherwise skip.
+      if (!kind && !photo_url) return null;
+      return { kind: kind || 'frame', photo_url };
+    }
+    return null;
+  }).filter(Boolean);
+
   const cleanTags = (Array.isArray(tags) ? tags : [])
     .map(t => String(t).trim()).filter(Boolean).slice(0, 6);
 
@@ -104,9 +182,11 @@ router.post('/', requireAuth, async (req, res) => {
     );
     const id = rows[0].id;
     for (let i = 0; i < cleanPhotos.length; i++) {
+      const ph = cleanPhotos[i];
       await c.query(
-        `INSERT INTO post_photos (post_id, photo_kind, position) VALUES ($1,$2,$3)`,
-        [id, cleanPhotos[i], i]
+        `INSERT INTO post_photos (post_id, photo_kind, photo_url, position)
+           VALUES ($1,$2,$3,$4)`,
+        [id, ph.kind, ph.photo_url, i]
       );
     }
     for (const t of cleanTags) {
@@ -166,7 +246,8 @@ router.get('/:id/comments', requireAuth, async (req, res) => {
   const id = parseInt(req.params.id, 10);
   const { rows } = await q(
     `SELECT pc.id, pc.body, pc.created_at,
-            u.id AS author_id, u.first_name, u.last_name, u.avatar_tone, u.headline
+            u.id AS author_id, u.first_name, u.last_name,
+            u.avatar_tone, u.avatar_url, u.headline
        FROM post_comments pc JOIN users u ON u.id = pc.author_id
       WHERE pc.post_id = $1 ORDER BY pc.created_at ASC`,
     [id]
@@ -181,6 +262,7 @@ router.get('/:id/comments', requireAuth, async (req, res) => {
         name: `${r.first_name} ${r.last_name}`.trim(),
         initials: ((r.first_name[0] || '') + (r.last_name[0] || '')).toUpperCase(),
         avatar_tone: r.avatar_tone,
+        avatar_urls: parseUrls(r.avatar_url),
         headline: r.headline,
       },
     })),
