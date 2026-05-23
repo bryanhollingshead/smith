@@ -7,6 +7,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { B } from '../lib/theme.js';
 import { TopNav } from '../components/TopNav.jsx';
 import { Avatar, Photo } from '../components/Primitives.jsx';
+import { SmithAvatar } from '../components/SmithAvatar.jsx';
 import { Icon } from '../components/Icon.jsx';
 import { FeedPost } from '../components/FeedPost.jsx';
 import { ComposePost } from '../components/ComposePost.jsx';
@@ -65,6 +66,7 @@ export function FeedPage() {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
             <ComposeTrigger
               user={user}
+              profile={profile}
               onOpen={() => setComposing(true)}
             />
 
@@ -108,21 +110,46 @@ export function FeedPage() {
 }
 
 // ── Left rail: thin profile preview ───────────────────────────────────
+// Cover and avatar both prefer uploaded photos when present; otherwise
+// fall back to the placeholder Photo (cover) and monogram Avatar (avatar).
+// The avatar sits over the cover with negative margin to create the
+// classic overlap look; the surface-colored ring around it isolates the
+// circle from the cover photo so the edges read cleanly.
 function ProfileCard({ profile, onView }) {
   if (!profile) return <div style={{ height: 240 }}/>;
+
+  const coverUrl = profile.cover_urls?.thumb || profile.cover_urls?.medium;
+
   return (
     <aside style={{
       background: B.surface, border: `1px solid ${B.line}`, borderRadius: 4,
       overflow: 'hidden', position: 'sticky', top: 88,
     }}>
-      <Photo kind={profile.cover_kind} label="cover" height={64}/>
-      <div style={{ padding: '0 22px 22px', marginTop: -28, textAlign: 'center' }}>
+      {coverUrl ? (
+        <div style={{
+          height: 80,
+          background: `center/cover url("${coverUrl}") no-repeat`,
+        }}/>
+      ) : (
+        <Photo kind={profile.cover_kind} label="cover" height={80}/>
+      )}
+      <div style={{ padding: '0 22px 22px', marginTop: -36, textAlign: 'center' }}>
         <button onClick={onView} style={{
           background: 'transparent', border: 'none', padding: 0, cursor: 'pointer',
           display: 'inline-block',
         }}>
-          <span style={{ display: 'inline-block', background: B.surface, padding: 4, borderRadius: '50%' }}>
-            <Avatar initials={profile.initials} size={64} tone={profile.avatar_tone}/>
+          {/* The padded surface-color background creates the ring that
+              separates the avatar from the cover photo behind it. */}
+          <span style={{
+            display: 'inline-block', background: B.surface,
+            padding: 4, borderRadius: '50%',
+          }}>
+            <SmithAvatar
+              urls={profile.avatar_urls}
+              initials={profile.initials}
+              size={72}
+              tone={profile.avatar_tone}
+            />
           </span>
         </button>
         <div className="serif" style={{
@@ -160,7 +187,9 @@ function ProfileCard({ profile, onView }) {
 }
 
 // ── Compose trigger ──────────────────────────────────────────────────
-function ComposeTrigger({ user, onOpen }) {
+// Uses the real profile's avatar (if uploaded) and tone, rather than the
+// hardcoded 'rust' fallback the original used before the photo system.
+function ComposeTrigger({ user, profile, onOpen }) {
   const initials = ((user?.first_name?.[0] || '') + (user?.last_name?.[0] || '')).toUpperCase();
   return (
     <div style={{
@@ -168,7 +197,12 @@ function ComposeTrigger({ user, onOpen }) {
       padding: '16px 22px',
     }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-        <Avatar initials={initials} size={42} tone="rust"/>
+        <SmithAvatar
+          urls={profile?.avatar_urls}
+          initials={initials}
+          size={42}
+          tone={profile?.avatar_tone || 'rust'}
+        />
         <button onClick={onOpen} style={{
           flex: 1, textAlign: 'left', padding: '11px 16px',
           background: B.bg, border: `1px solid ${B.line}`, color: B.dim,
@@ -328,8 +362,6 @@ function NewsRail() {
     return () => { cancelled = true; };
   }, []);
 
-  // Helper for relative time (same shape as in NewsCard, kept inline to
-  // avoid pulling more imports for one usage)
   const relTime = (iso) => {
     const diff = (Date.now() - new Date(iso).getTime()) / 1000;
     if (diff < 3600)      return `${Math.round(diff / 60)}m ago`;

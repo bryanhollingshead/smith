@@ -10,6 +10,7 @@ import { useMessages } from '../lib/MessagesContext.jsx';
 import { api } from '../lib/api.js';
 import { Icon } from './Icon.jsx';
 import { Avatar, SmithLogo } from './Primitives.jsx';
+import { SmithAvatar } from './SmithAvatar.jsx';
 
 export function TopNav({ active }) {
   const { navigate } = useRouter();
@@ -18,6 +19,25 @@ export function TopNav({ active }) {
   const [unread, setUnread] = useState(0);
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef(null);
+
+  // Fetch this user's profile once so we can show their uploaded avatar.
+  // AuthContext only holds session-level data; avatar_urls live on the
+  // profile object. We refetch when the user identity changes (after sign-in)
+  // or when avatar_urls might have changed (this tab does an upload).
+  //
+  // Other tabs / page visits already fetch /profiles/me — those updates flow
+  // back here on next mount. For instant reflection after a same-tab avatar
+  // change, the photo upload pages call refresh() in AuthContext, which we
+  // observe via `user`.
+  const [avatarUrls, setAvatarUrls] = useState(null);
+  useEffect(() => {
+    if (!user?.id) { setAvatarUrls(null); return; }
+    let cancelled = false;
+    api.get('/profiles/me')
+      .then(d => { if (!cancelled) setAvatarUrls(d.profile?.avatar_urls || null); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [user?.id, user?.avatar_url, user?.updated_at]);
 
   // Poll notifications every 30s — matches the "polling" decision.
   useEffect(() => {
@@ -107,11 +127,11 @@ export function TopNav({ active }) {
               borderRadius: '50%',
             }}
           >
-            <Avatar
+            <SmithAvatar
+              urls={avatarUrls}
               initials={initialsOf(user)}
               size={38}
               tone={user?.avatar_tone || 'rust'}
-              ring={B.surface}
             />
           </button>
           {menuOpen && (
