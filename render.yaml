@@ -31,7 +31,7 @@ services:
     # the IS_PROD branch in src/index.js.
     buildCommand: |
       cd server && npm ci
-      cd ../client && npm ci && npm run build
+      cd ../client && npm ci --include=dev && npm run build
 
     # Run the Express server. NODE_ENV=production makes it serve client/dist
     # alongside the API. PORT comes from Render automatically.
