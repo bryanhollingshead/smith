@@ -8,7 +8,7 @@ import { B } from '../lib/theme.js';
 import { Icon } from '../components/Icon.jsx';
 import { Avatar, Photo } from '../components/Primitives.jsx';
 import { SmithAvatar } from './SmithAvatar.jsx';
-import { api } from '../lib/api.js';
+import { api, auth } from '../lib/api.js';
 import { useRouter } from '../lib/router.jsx';
 
 // ── Header ──────────────────────────────────────────────────────────────
@@ -504,7 +504,7 @@ export function CredentialsSection({ profile, isMe, onEdit }) {
               </div>
               {l.doc_url && (
                 <a
-                  href={l.doc_url}
+                  href={withAuthToken(l.doc_url)}
                   target="_blank"
                   rel="noopener noreferrer"
                   onClick={e => e.stopPropagation()}
@@ -1038,4 +1038,21 @@ export function ProfileStrengthBanner({ onEdit }) {
       </div>
     </section>
   );
+}
+
+// Patch C: append the current JWT to a URL as ?token=<jwt> so that opening
+// the URL in a new browser tab (where the React app can't attach an
+// Authorization header) still authenticates against /api routes. The
+// backend's requireAuth middleware accepts the query-string fallback for
+// exactly this case.
+//
+// Returns the URL unchanged if there's no token available (signed-out
+// users navigating to a shared link — they'll see the normal 401 from
+// the server, not an opaque error).
+function withAuthToken(url) {
+  if (!url) return url;
+  const token = auth.get();
+  if (!token) return url;
+  const sep = url.includes('?') ? '&' : '?';
+  return `${url}${sep}token=${encodeURIComponent(token)}`;
 }

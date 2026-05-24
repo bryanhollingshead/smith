@@ -184,7 +184,17 @@ async function loadProfile(userId, viewerId) {
       done: u.onboarding_done,
     },
     trades: trades.rows,
-    licenses: licenses.rows.map(l => {
+    // Patch C: Public viewers only see licenses that have an uploaded doc.
+    // Owners see everything (the missing-doc rows are the user's "fill me in"
+    // checklist in Edit Profile). This makes the public profile credentials
+    // section read as "credentials with proof attached", not "checklist of
+    // claimed credentials". A license without a doc is essentially unbacked.
+    licenses: licenses.rows
+      .filter(l => {
+        const isOwner = !!viewerId && viewerId === userId;
+        return isOwner || !!l.doc_url;
+      })
+      .map(l => {
       const isOwner = !!viewerId && viewerId === userId;
       const showDoc = isOwner || l.share_public;
       return {

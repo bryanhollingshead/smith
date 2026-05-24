@@ -10,7 +10,7 @@ import { B } from '../lib/theme.js';
 import { TopNav } from '../components/TopNav.jsx';
 import { Avatar, Photo } from '../components/Primitives.jsx';
 import { Icon } from '../components/Icon.jsx';
-import { api } from '../lib/api.js';
+import { api, auth } from '../lib/api.js';
 import { useRouter } from '../lib/router.jsx';
 import { useAuth } from '../lib/AuthContext.jsx';
 import { suggestSkills } from '../lib/trade-skills.js';
@@ -1621,7 +1621,7 @@ function DocAttachment({ hasDoc, docUrl, sharePublic, onSharePublicChange, onUpl
           display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
         }}>
           <a
-            href={docUrl}
+            href={withAuthToken(docUrl)}
             target="_blank"
             rel="noopener noreferrer"
             style={{
@@ -2063,3 +2063,16 @@ const SaveBar = ({ saved, busy, onSave }) => (
     }}>{busy ? 'Saving…' : 'Save changes'}</button>
   </div>
 );
+
+// Patch C: append the current JWT to a URL as ?token=<jwt> so that opening
+// the URL in a new browser tab (where the React app can't attach an
+// Authorization header) still authenticates against /api routes. Matches
+// the helper in ProfileSections.jsx — kept in both files so each module
+// is self-contained.
+function withAuthToken(url) {
+  if (!url) return url;
+  const token = auth.get();
+  if (!token) return url;
+  const sep = url.includes('?') ? '&' : '?';
+  return `${url}${sep}token=${encodeURIComponent(token)}`;
+}
