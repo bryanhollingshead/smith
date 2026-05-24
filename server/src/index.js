@@ -31,6 +31,7 @@ import openapiRouter from './routes/openapi.js';
 import photosRouter from './routes/photos.js';
 import filesRouter from './routes/files.js';
 import { readClientVersion } from './middleware-version.js';
+import { ingestAll } from './ingest-news.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
@@ -131,6 +132,46 @@ const server = app.listen(PORT, () => {
 
 // Messaging websocket — same HTTP server, /api/ws path.
 attachMessagingWS(server);
+
+// ── News ingestion scheduler ────────────────────────────────────────────
+// In production, kick off ingestion 30 seconds after startup (so the server
+// is settled before pulling external feeds) and then every hour after that.
+// Failures are swallowed and logged — ingestion errors should never crash
+// the server. Skipped entirely in dev/test (we run `npm run ingest`
+// manually there).
+//
+// One hour is the right cadence for a launch-stage app: RSS feeds typically
+// update no more than a few times per day, so polling more often wastes
+// bandwidth without surfacing fresher news. We can tighten this later when
+// the user base wants real-time-ish news.
+if (IS_PROD) {
+  const HOUR_MS = 60 * 60 * 1000;
+  const runIngest = async () => {
+    const startedAt = new Date();
+    try {
+      const summary = await ingestAll();
+      const totals = summary.reduce(
+        (acc, r) => ({
+          inserted: acc.inserted + (r.inserted || 0),
+          errors:   acc.errors + (r.error ? 1 : 0),
+        }),
+        { inserted: 0, errors: 0 }
+      );
+      const duration = ((Date.now() - startedAt) / 1000).toFixed(1);
+      console.log(
+        `[ingest] cycle done — ${summary.length} feeds, ` +
+        `${totals.inserted} new articles, ${totals.errors} errors, ${duration}s`
+      );
+    } catch (e) {
+      console.error('[ingest] cycle threw:', e.message || e);
+    }
+  };
+  // 30s delay on startup so the server has time to settle and pass the
+  // initial health check before we start chewing on external HTTP calls.
+  setTimeout(runIngest, 30_000);
+  setInterval(runIngest, HOUR_MS);
+  console.log(`[ingest] scheduler armed — first run in 30s, then every ${HOUR_MS / 60_000}m`);
+}
 
 // Graceful shutdown so docker-compose / CI doesn't hang.
 const shutdown = () => {
