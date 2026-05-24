@@ -1,0 +1,100 @@
+# Smith — Render Blueprint
+#
+# Declarative config for Render's "Blueprint" deploy mode. One file describes
+# the whole stack — web service + database. Push this to your repo, point
+# Render at the repo, and it builds the entire production environment.
+#
+# Architecture (Option A): single web service serving BOTH the React build
+# (from client/dist) AND the API (/api/*). No separate static site. R2
+# handles file storage; no disk persistence needed on the server.
+#
+# Cost (as of this writing):
+#   - Web Service · Starter:   ~$7/month
+#   - Postgres   · Starter:   ~$7/month
+#   - Total:                  ~$14/month
+#
+# Tier upgrades are a one-click change in the Render dashboard. The Starter
+# Web Service sleeps after 15 min of inactivity; that's fine for soft launch.
+# Upgrade to Standard ($25/mo) when you have continuous traffic.
+
+services:
+  - type: web
+    name: smith
+    runtime: node
+    region: oregon            # closest US region to Salt Lake City
+    plan: starter
+    branch: main              # auto-deploy on every push to main
+    rootDir: .
+
+    # Two-step build: install both server + client deps, then build the
+    # React app into client/dist. The Express server picks it up via
+    # the IS_PROD branch in src/index.js.
+    buildCommand: |
+      cd server && npm ci
+      cd ../client && npm ci && npm run build
+
+    # Run the Express server. NODE_ENV=production makes it serve client/dist
+    # alongside the API. PORT comes from Render automatically.
+    startCommand: cd server && npm start
+
+    # Health check Render uses to decide if the service is up. Our server
+    # exposes this exact endpoint.
+    healthCheckPath: /api/health
+
+    envVars:
+      - key: NODE_ENV
+        value: production
+
+      # Postgres connection string — Render auto-links the database below.
+      - key: DATABASE_URL
+        fromDatabase:
+          name: smith-db
+          property: connectionString
+
+      # JWT signing — set ONCE in the Render dashboard after creation, do not
+      # check this value in. `generateValue: true` makes Render generate a
+      # secure random value on first deploy and persist it for the life of
+      # the service.
+      - key: JWT_SECRET
+        generateValue: true
+      - key: JWT_EXPIRES_IN
+        value: 7d
+
+      # Email verification + reset windows (matches dev defaults)
+      - key: RESET_TOKEN_TTL_MIN
+        value: "30"
+      - key: EMAIL_CODE_TTL_MIN
+        value: "15"
+
+      # Storage driver + R2 credentials.
+      # The four R2_* values you set manually in the Render dashboard —
+      # `sync: false` tells Render "don't overwrite, this is a secret I
+      # manage by hand". On first deploy these will be unset and the server
+      # will fail to upload; set them via the Render dashboard and redeploy.
+      - key: STORAGE_DRIVER
+        value: r2
+      - key: R2_ACCOUNT_ID
+        sync: false
+      - key: R2_ACCESS_KEY_ID
+        sync: false
+      - key: R2_SECRET_ACCESS_KEY
+        sync: false
+      - key: R2_BUCKET
+        sync: false
+      - key: R2_ENDPOINT
+        sync: false
+
+      # CORS — same origin in prod so the value is mostly cosmetic, but
+      # setting it explicitly avoids surprises if you later split frontend
+      # to a separate domain. We default the server to '*' won't actually
+      # be used because frontend + backend share an origin in this setup.
+      - key: CLIENT_ORIGIN
+        value: "*"
+
+databases:
+  - name: smith-db
+    plan: starter             # 1GB storage, 256MB RAM — fine for launch
+    databaseName: smith
+    user: smith
+    region: oregon            # MUST match service region for in-network connectivity
+    ipAllowList: []           # only allow connections from Render services

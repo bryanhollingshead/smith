@@ -1,5 +1,19 @@
 // Smith — API server entry
+//
+// In dev (NODE_ENV !== 'production') this serves ONLY the API. Vite runs the
+// frontend on port 5173 and proxies /api → here on 4000.
+//
+// In production (NODE_ENV === 'production'), this serves the API AND the
+// built React app from ../../client/dist. Two domains-of-concern collapse
+// into one — same origin for the React bundle and the API it calls. This
+// is why we keep the API rooted under /api: anything that doesn't match
+// /api/* falls through to serving the SPA, which lets the React router
+// handle client-side routes like /profile/1, /messages, etc.
+
 import 'dotenv/config';
+import path from 'node:path';
+import fs from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import express from 'express';
 import cors from 'cors';
 
@@ -17,6 +31,11 @@ import openapiRouter from './routes/openapi.js';
 import photosRouter from './routes/photos.js';
 import filesRouter from './routes/files.js';
 import { readClientVersion } from './middleware-version.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname  = path.dirname(__filename);
+
+const IS_PROD = process.env.NODE_ENV === 'production';
 
 const app = express();
 app.disable('x-powered-by');
@@ -50,7 +69,46 @@ app.use('/api', openapiRouter);       // /openapi.yaml, /openapi.json, /docs
 app.use('/api/photos', photosRouter); // /avatar, /cover  (POST + DELETE)
 app.use('/api', filesRouter);         // /files/*  (serves storage objects)
 
-// 404
+// ── Static SPA serving (production only) ────────────────────────────────
+// The React build lands at ../../client/dist relative to this file. We:
+//   1. Serve every file in dist verbatim (JS, CSS, fonts, etc.)
+//   2. For any non-/api path that doesn't match a file, return index.html
+//      so the React router can handle the route client-side.
+//
+// In dev this whole block is skipped — Vite serves the frontend on 5173
+// and proxies /api here.
+const clientDist = path.resolve(__dirname, '..', '..', 'client', 'dist');
+const haveBuild  = fs.existsSync(path.join(clientDist, 'index.html'));
+
+if (IS_PROD && haveBuild) {
+  // Static assets — long cache for the hashed files Vite emits.
+  app.use(express.static(clientDist, {
+    index: false, // we handle index.html via the SPA fallback below
+    maxAge: '7d',
+    setHeaders: (res, filepath) => {
+      // index.html shouldn't be cached (the references inside it change
+      // every build). Hashed JS/CSS can cache for a long time.
+      if (filepath.endsWith('index.html')) {
+        res.setHeader('Cache-Control', 'no-cache');
+      }
+    },
+  }));
+
+  // SPA fallback: everything that isn't an API route → serve index.html.
+  // We do this AFTER the API routes are registered so /api/* still 404s
+  // through the JSON handler below if a route doesn't exist.
+  app.get(/^(?!\/api(\/|$)).*/, (_req, res) => {
+    res.sendFile(path.join(clientDist, 'index.html'));
+  });
+} else if (IS_PROD && !haveBuild) {
+  console.warn(
+    `[server] NODE_ENV=production but no client build found at ${clientDist}. ` +
+    `Did the build step run? The API will work, but the frontend won't be served.`
+  );
+}
+
+// 404 — only matched by /api/* misses (the SPA fallback above catches
+// non-API misses in production).
 app.use((req, res) => res.status(404).json({ error: 'Not found', path: req.url }));
 
 // Error handler — JSON, never HTML.
@@ -64,7 +122,11 @@ app.use((err, _req, res, _next) => {
 const PORT = parseInt(process.env.PORT || '4000', 10);
 const server = app.listen(PORT, () => {
   console.log(`\n🛠  Smith API listening on http://localhost:${PORT}`);
-  console.log(`    Health: http://localhost:${PORT}/api/health\n`);
+  console.log(`    Health: http://localhost:${PORT}/api/health`);
+  if (IS_PROD && haveBuild) {
+    console.log(`    Serving SPA from ${clientDist}`);
+  }
+  console.log();
 });
 
 // Messaging websocket — same HTTP server, /api/ws path.
