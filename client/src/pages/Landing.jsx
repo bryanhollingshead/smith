@@ -579,7 +579,7 @@ function Footer() {
             fontSize: 11, color: B.faint,
             letterSpacing: '0.06em', marginTop: 8,
           }}>
-            FOR THE ONES WHO BUILD
+            FOR MAKERS
           </div>
         </div>
         <div style={{ display: 'flex', gap: 48, fontSize: 13 }}>
