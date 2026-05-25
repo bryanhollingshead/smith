@@ -1,13 +1,15 @@
 // Smith — App entry
-// Owns the routing-vs-auth logic: unauthenticated users get auth pages,
-// unverified users get pushed into confirm-email, users without onboarding
-// get pushed into the trade-selection screen, everyone else gets the app.
+// Owns the routing-vs-auth logic: unauthenticated users get the Landing
+// marketing page by default (or auth pages at /auth/*), unverified users
+// get pushed into confirm-email, users without onboarding get pushed into
+// the trade-selection screen, everyone else gets the app.
 
 import React from 'react';
 import { B } from './lib/theme.js';
 import { useAuth } from './lib/AuthContext.jsx';
 import { useRouter, match } from './lib/router.jsx';
 
+import { LandingPage } from './pages/Landing.jsx';
 import { SignInPage } from './pages/SignIn.jsx';
 import { SignUpPage } from './pages/SignUp.jsx';
 import { ConfirmEmailPage } from './pages/ConfirmEmail.jsx';
@@ -28,11 +30,6 @@ export function App() {
   const { user, booted } = useAuth();
   const { path, navigate } = useRouter();
 
-  // Allow the password-reset flow to be reached even when signed in,
-  // because the user clicked a link from email.
-  const publicPaths = ['/auth/signin', '/auth/signup', '/auth/forgot', '/auth/reset'];
-  const isPublic = publicPaths.includes(path);
-
   // Don't render anything until we've checked the saved token.
   if (!booted) {
     return (
@@ -46,18 +43,18 @@ export function App() {
     );
   }
 
-  // Not signed in: only auth pages are reachable.
+  // Not signed in: serve the marketing Landing page at "/" and explicit
+  // auth pages at /auth/*. Anything else (e.g. someone bookmarked /feed
+  // before signing out) is treated as a Landing visit too — no forced
+  // redirect, since they're not actually trying to authenticate.
   if (!user) {
     if (path === '/auth/signup')  return <SignUpPage/>;
     if (path === '/auth/forgot')  return <ForgotPasswordPage/>;
     if (path === '/auth/reset')   return <ResetPasswordPage/>;
     if (path === '/auth/signin')  return <SignInPage/>;
-    // Default: send to sign-in.
-    if (path !== '/auth/signin') {
-      // Use replace to avoid a stack of identical redirects.
-      setTimeout(() => navigate('/auth/signin', { replace: true }), 0);
-    }
-    return <SignInPage/>;
+    // Default: marketing landing page. No redirect — visitors see Smith
+    // before being asked to sign in.
+    return <LandingPage/>;
   }
 
   // Signed in. Block in-app navigation until verified + onboarded.
