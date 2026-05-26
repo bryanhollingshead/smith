@@ -196,13 +196,22 @@ router.delete('/company/:id/logo', requireAuth, async (req, res) => {
 });
 
 // ════════════════════════════════════════════════════════════════════════
-// JOBSITE PHOTO (Patch B)
+// JOBSITE PHOTOS — gallery (Migration 008)
 // ════════════════════════════════════════════════════════════════════════
 //
-// One uploaded photo per jobsite (plus the existing photo_kind placeholder
-// as a fallback). The photo is stored as a cover-style variant since
-// jobsites are typically landscape construction photos.
+// A jobsite now has a multi-photo gallery in the jobsite_photos table. The
+// lowest position is the "primary" photo. jobsites.photo_url (from Patch B)
+// is kept as a denormalized mirror of the primary so every existing read
+// path (profile cards, Featured Work, edit thumbnails) keeps working — these
+// endpoints resync it after every gallery change.
 //
+// Routes:
+//   POST   /api/photos/jobsite/:id              add a photo to the gallery
+//   DELETE /api/photos/jobsite/:id/photo/:pid   remove one gallery photo
+//   PATCH  /api/photos/jobsite/:id/photos       reorder ({ order: [pid,...] })
+//   DELETE /api/photos/jobsite/:id              clear the whole gallery
+//
+// Photos are stored as cover-style variants (jobsites are landscape shots).
 // Ownership: the jobsite belongs to a work_history row owned by the user.
 
 async function checkJobsiteAuth(jobsiteId, userId) {
@@ -220,6 +229,41 @@ async function checkJobsiteAuth(jobsiteId, userId) {
   return { ok: true, jobsite: rows[0] };
 }
 
+// Rewrite jobsites.photo_url to mirror the current primary (position-0) photo,
+// or NULL if the gallery is empty. Called after every gallery mutation.
+async function syncPrimaryPhoto(jobsiteId) {
+  const { rows } = await q(
+    `SELECT photo_url FROM jobsite_photos
+      WHERE jobsite_id = $1 ORDER BY position ASC, id ASC LIMIT 1`,
+    [jobsiteId]
+  );
+  const primary = rows[0]?.photo_url || null;
+  await q('UPDATE jobsites SET photo_url = $1 WHERE id = $2', [primary, jobsiteId]);
+}
+
+// Fetch the gallery in display order, shaped for the client.
+async function fetchGallery(jobsiteId) {
+  const { rows } = await q(
+    `SELECT id, photo_url, position FROM jobsite_photos
+      WHERE jobsite_id = $1 ORDER BY position ASC, id ASC`,
+    [jobsiteId]
+  );
+  return rows.map(r => ({ id: r.id, urls: urlsFor(r.photo_url), position: r.position }));
+}
+
+// Re-pack positions so they're contiguous 0..n-1 after a delete.
+async function repackPositions(jobsiteId) {
+  await q(
+    `WITH ordered AS (
+       SELECT id, ROW_NUMBER() OVER (ORDER BY position ASC, id ASC) - 1 AS rn
+         FROM jobsite_photos WHERE jobsite_id = $1
+     )
+     UPDATE jobsite_photos jp SET position = ordered.rn
+       FROM ordered WHERE jp.id = ordered.id`,
+    [jobsiteId]
+  );
+}
+
 router.post('/jobsite/:id', requireAuth, withUpload, async (req, res) => {
   const jobsiteId = parseInt(req.params.id, 10);
   if (!Number.isFinite(jobsiteId)) return res.status(400).json({ error: 'Invalid id' });
@@ -233,17 +277,78 @@ router.post('/jobsite/:id', requireAuth, withUpload, async (req, res) => {
       ownerId: jobsiteId,
       label: 'photo',
     });
-    await q(
-      'UPDATE jobsites SET photo_url = $1 WHERE id = $2',
-      [JSON.stringify(variants), jobsiteId]
+    const { rows: pos } = await q(
+      `SELECT COALESCE(MAX(position), -1) + 1 AS next FROM jobsite_photos WHERE jobsite_id = $1`,
+      [jobsiteId]
     );
-    if (auth.jobsite.photo_url) deleteVariants(auth.jobsite.photo_url);
-
-    res.status(201).json({ photo: { keys: variants, urls: urlsFor(variants) } });
+    const { rows } = await q(
+      `INSERT INTO jobsite_photos (jobsite_id, photo_url, position)
+         VALUES ($1,$2,$3) RETURNING id, position`,
+      [jobsiteId, JSON.stringify(variants), pos[0].next]
+    );
+    await syncPrimaryPhoto(jobsiteId);
+    const photos = await fetchGallery(jobsiteId);
+    res.status(201).json({
+      photo: { id: rows[0].id, urls: urlsFor(variants), position: rows[0].position },
+      photos,
+    });
   } catch (e) {
-    console.error('[photos] jobsite failed:', e);
+    console.error('[photos] jobsite add failed:', e);
     res.status(400).json({ error: e.message || 'Could not process image.' });
   }
+});
+
+router.delete('/jobsite/:id/photo/:photoId', requireAuth, async (req, res) => {
+  const jobsiteId = parseInt(req.params.id, 10);
+  const photoId = parseInt(req.params.photoId, 10);
+  if (!Number.isFinite(jobsiteId) || !Number.isFinite(photoId))
+    return res.status(400).json({ error: 'Invalid id' });
+
+  const auth = await checkJobsiteAuth(jobsiteId, req.userId);
+  if (!auth.ok) return res.status(auth.status).json({ error: auth.error });
+
+  const { rows } = await q(
+    `SELECT photo_url FROM jobsite_photos WHERE id = $1 AND jobsite_id = $2`,
+    [photoId, jobsiteId]
+  );
+  if (!rows.length) return res.status(404).json({ error: 'Photo not found.' });
+
+  await q('DELETE FROM jobsite_photos WHERE id = $1', [photoId]);
+  await repackPositions(jobsiteId);
+  await syncPrimaryPhoto(jobsiteId);
+  if (rows[0].photo_url) deleteVariants(rows[0].photo_url);
+
+  const photos = await fetchGallery(jobsiteId);
+  res.json({ ok: true, photos });
+});
+
+router.patch('/jobsite/:id/photos', requireAuth, async (req, res) => {
+  const jobsiteId = parseInt(req.params.id, 10);
+  if (!Number.isFinite(jobsiteId)) return res.status(400).json({ error: 'Invalid id' });
+
+  const auth = await checkJobsiteAuth(jobsiteId, req.userId);
+  if (!auth.ok) return res.status(auth.status).json({ error: auth.error });
+
+  const order = Array.isArray(req.body?.order) ? req.body.order : null;
+  if (!order) return res.status(400).json({ error: 'order array required' });
+
+  const { rows } = await q(
+    'SELECT id FROM jobsite_photos WHERE jobsite_id = $1', [jobsiteId]
+  );
+  const owned = new Set(rows.map(r => r.id));
+  const ids = order.map(n => parseInt(n, 10)).filter(n => owned.has(n));
+  // Must be a complete permutation of the jobsite's photos.
+  if (ids.length !== owned.size || new Set(ids).size !== owned.size)
+    return res.status(400).json({ error: 'order must list every photo exactly once' });
+
+  for (let i = 0; i < ids.length; i++) {
+    await q('UPDATE jobsite_photos SET position = $1 WHERE id = $2 AND jobsite_id = $3',
+      [i, ids[i], jobsiteId]);
+  }
+  await syncPrimaryPhoto(jobsiteId);
+
+  const photos = await fetchGallery(jobsiteId);
+  res.json({ ok: true, photos });
 });
 
 router.delete('/jobsite/:id', requireAuth, async (req, res) => {
@@ -253,9 +358,18 @@ router.delete('/jobsite/:id', requireAuth, async (req, res) => {
   const auth = await checkJobsiteAuth(jobsiteId, req.userId);
   if (!auth.ok) return res.status(auth.status).json({ error: auth.error });
 
+  const { rows } = await q(
+    'SELECT photo_url FROM jobsite_photos WHERE jobsite_id = $1', [jobsiteId]
+  );
+  await q('DELETE FROM jobsite_photos WHERE jobsite_id = $1', [jobsiteId]);
   await q('UPDATE jobsites SET photo_url = NULL WHERE id = $1', [jobsiteId]);
-  if (auth.jobsite.photo_url) deleteVariants(auth.jobsite.photo_url);
-  res.json({ ok: true });
+  for (const r of rows) if (r.photo_url) deleteVariants(r.photo_url);
+  // Belt-and-suspenders: drop the legacy mirror's variant if it wasn't in the
+  // gallery (shouldn't happen post-backfill, but cheap insurance).
+  if (auth.jobsite.photo_url && !rows.some(r => r.photo_url === auth.jobsite.photo_url)) {
+    deleteVariants(auth.jobsite.photo_url);
+  }
+  res.json({ ok: true, photos: [] });
 });
 
 // ════════════════════════════════════════════════════════════════════════

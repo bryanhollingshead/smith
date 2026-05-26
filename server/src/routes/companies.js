@@ -122,11 +122,13 @@ router.post('/work-history', requireAuth, async (req, res) => {
     for (let i = 0; i < jobsites.length; i++) {
       const js = jobsites[i] || {};
       if (!js.title) continue;
+      const yr = (js.year === '' || js.year == null) ? null : (parseInt(js.year, 10) || null);
       await c.query(
-        `INSERT INTO jobsites (work_history_id, title, kind, location, duration, photo_kind, position)
-           VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-        [whId, js.title, js.kind || '', js.location || '',
-         js.duration || '', js.photo_kind || 'frame', i]
+        `INSERT INTO jobsites
+           (work_history_id, title, structure_type, job_type, year, kind, location, duration, photo_kind, position)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+        [whId, js.title, js.structure_type || '', js.job_type || '', yr,
+         js.kind || '', js.location || '', js.duration || '', js.photo_kind || 'frame', i]
       );
     }
     return whId;
@@ -146,10 +148,20 @@ router.delete('/work-history/:id', requireAuth, async (req, res) => {
 });
 
 // POST /api/work-history/:id/jobsites — append a jobsite
+//
+// New schema fields: structure_type, job_type, year. The legacy freeform
+// `kind` / `duration` are still accepted (for any old client) but optional;
+// new clients send the structured fields instead.
 router.post('/work-history/:id/jobsites', requireAuth, async (req, res) => {
   const whId = parseInt(req.params.id, 10);
-  const { title, kind = '', location = '', duration = '', photo_kind = 'frame', is_featured = false } = req.body || {};
+  const {
+    title, structure_type = '', job_type = '', year = null,
+    kind = '', location = '', duration = '', photo_kind = 'frame', is_featured = false,
+  } = req.body || {};
   if (!title) return res.status(400).json({ error: 'title required' });
+
+  // year is a single integer (e.g. 2024); coerce empty/invalid to NULL.
+  const yr = (year === '' || year == null) ? null : (parseInt(year, 10) || null);
 
   // Verify the work-history row belongs to this user.
   const { rows: own } = await q(
@@ -163,21 +175,27 @@ router.post('/work-history/:id/jobsites', requireAuth, async (req, res) => {
     [whId]
   );
   const { rows } = await q(
-    `INSERT INTO jobsites (work_history_id, title, kind, location, duration, photo_kind, is_featured, position)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
-       RETURNING id, title, kind, location, duration, photo_kind, photo_url, is_featured, position`,
-    [whId, title, kind, location, duration, photo_kind, !!is_featured, pos[0].next]
+    `INSERT INTO jobsites
+       (work_history_id, title, structure_type, job_type, year, kind, location, duration, photo_kind, is_featured, position)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+       RETURNING id, title, structure_type, job_type, year, kind, location, duration,
+                 photo_kind, photo_url, is_featured, position`,
+    [whId, title, structure_type, job_type, yr, kind, location, duration, photo_kind, !!is_featured, pos[0].next]
   );
   const j = rows[0];
   res.status(201).json({
     jobsite: {
       id: j.id,
       title: j.title,
+      structure_type: j.structure_type,
+      job_type: j.job_type,
+      year: j.year,
       kind: j.kind,
       location: j.location,
       duration: j.duration,
       photo_kind: j.photo_kind,
       photo_urls: parseUrls(j.photo_url),
+      photos: [],
       is_featured: j.is_featured,
       position: j.position,
     },
@@ -198,9 +216,17 @@ router.delete('/jobsites/:id', requireAuth, async (req, res) => {
 // PATCH /api/jobsites/:id — toggle featured, edit fields
 router.patch('/jobsites/:id', requireAuth, async (req, res) => {
   const id = parseInt(req.params.id, 10);
-  const allowed = ['title', 'kind', 'location', 'duration', 'photo_kind', 'is_featured'];
+  const allowed = [
+    'title', 'structure_type', 'job_type', 'year',
+    'kind', 'location', 'duration', 'photo_kind', 'is_featured',
+  ];
   const updates = {};
   for (const k of allowed) if (k in (req.body || {})) updates[k] = req.body[k];
+  // year is an integer column; coerce empty string / invalid to NULL.
+  if ('year' in updates) {
+    updates.year = (updates.year === '' || updates.year == null)
+      ? null : (parseInt(updates.year, 10) || null);
+  }
   if (Object.keys(updates).length === 0)
     return res.status(400).json({ error: 'No fields to update' });
 

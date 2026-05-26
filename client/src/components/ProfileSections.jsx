@@ -331,9 +331,11 @@ export function CompaniesSection({ profile, isMe, onEdit }) {
                         <div className="serif" style={{
                           color: B.text, fontWeight: 600, fontSize: 14,
                         }}>{js.title}</div>
-                        <div style={{ color: B.dim, fontSize: 12, marginTop: 2 }}>{js.kind}</div>
+                        <div style={{ color: B.dim, fontSize: 12, marginTop: 2 }}>
+                          {[js.structure_type, js.job_type].filter(Boolean).join(' · ') || js.kind}
+                        </div>
                         <div style={{ color: B.faint, fontSize: 11, marginTop: 6 }}>
-                          {js.location} · {js.duration}
+                          {[js.location, js.year || js.duration].filter(Boolean).join(' · ')}
                         </div>
                       </div>
                     </div>
@@ -413,7 +415,7 @@ export function FeaturedSection({ profile, isMe, onEdit, navigate }) {
             padding: '40px 22px 18px', color: '#fff',
           }}>
             <div style={{ fontSize: 11, opacity: 0.8, fontStyle: 'italic' }}>
-              Featured · {hero.kind}
+              Featured · {[hero.structure_type, hero.job_type].filter(Boolean).join(' · ') || hero.kind}
             </div>
             <div className="serif" style={{ fontSize: 22, fontWeight: 600, marginTop: 4 }}>
               {hero.title}

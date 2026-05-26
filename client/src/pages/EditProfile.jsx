@@ -14,6 +14,7 @@ import { api, auth } from '../lib/api.js';
 import { useRouter } from '../lib/router.jsx';
 import { useAuth } from '../lib/AuthContext.jsx';
 import { suggestSkills } from '../lib/trade-skills.js';
+import { STRUCTURE_TYPES, orderedJobTypeCategories, suggestJobsiteName } from '../lib/job-types.js';
 import { PhotoUpload } from '../components/PhotoUpload.jsx';
 import { SmithAvatar } from '../components/SmithAvatar.jsx';
 
@@ -585,6 +586,10 @@ function WorkHistoryTab({ profile, onSaved, focus }) {
   }, [profile.work_history]);
   const FEATURED_CAP = 10;
 
+  // The user's primary trade (first in their ordered trades list) drives
+  // which job-type categories sort to the top of the jobsite picker.
+  const primaryTrade = profile.trades?.[0]?.name || null;
+
   // Deep-link handler: scroll + pulse + auto-open the right control.
   useEffect(() => {
     if (focus !== 'add-company') return;
@@ -625,6 +630,7 @@ function WorkHistoryTab({ profile, onSaved, focus }) {
             onChanged={onSaved}
             featuredCount={featuredCount}
             featuredCap={FEATURED_CAP}
+            primaryTrade={primaryTrade}
             focusAddJobsite={focus === 'newest-company' && co.id === newestCompanyId}
           />
         ))}
@@ -654,7 +660,7 @@ function WorkHistoryTab({ profile, onSaved, focus }) {
   );
 }
 
-function CompanyEditor({ co, onChanged, focusAddJobsite, featuredCount, featuredCap }) {
+function CompanyEditor({ co, onChanged, focusAddJobsite, featuredCount, featuredCap, primaryTrade }) {
   const [open, setOpen] = useState(false);
   const [addingSite, setAddingSite] = useState(false);
   // Patch: track which jobsite (if any) is currently being edited inline.
@@ -751,7 +757,11 @@ function CompanyEditor({ co, onChanged, focusAddJobsite, featuredCount, featured
                   key={`edit-${js.id}`}
                   mode="edit"
                   existing={js}
-                  onCancel={() => setEditingSiteId(null)}
+                  primaryTrade={primaryTrade}
+                  // Gallery photo edits persist immediately (separate
+                  // endpoints), so reload on close too — keeps the row
+                  // thumbnail in sync whether the user saves or cancels.
+                  onCancel={() => { setEditingSiteId(null); onChanged?.(); }}
                   onSaved={() => { setEditingSiteId(null); onChanged?.(); }}
                   featuredCount={featuredCount}
                   featuredCap={featuredCap}
@@ -770,7 +780,11 @@ function CompanyEditor({ co, onChanged, focusAddJobsite, featuredCount, featured
                     {js.title}
                   </div>
                   <div style={{ color: B.dim, fontSize: 11 }}>
-                    {js.kind}{js.location ? ` · ${js.location}` : ''}{js.duration ? ` · ${js.duration}` : ''}
+                    {[
+                      [js.structure_type, js.job_type].filter(Boolean).join(' · ') || js.kind,
+                      js.location,
+                      js.year || js.duration,
+                    ].filter(Boolean).join(' · ')}
                   </div>
                 </div>
                 <button
@@ -834,6 +848,7 @@ function CompanyEditor({ co, onChanged, focusAddJobsite, featuredCount, featured
               <JobsiteForm
                 mode="add"
                 workId={co.id}
+                primaryTrade={primaryTrade}
                 onCancel={() => setAddingSite(false)}
                 onSaved={() => { setAddingSite(false); onChanged?.(); }}
                 featuredCount={featuredCount}
@@ -1196,38 +1211,42 @@ function AddCompanyForm({ onCancel, onAdded }) {
 
 // ── Jobsite form (add + edit) ─────────────────────────────────────────
 //
-// Renamed from `AddJobsiteForm` to `JobsiteForm` because it now handles
-// both modes: adding a new jobsite under a company, OR editing an existing
+// Handles both adding a new jobsite under a company and editing an existing
 // one inline within the work-history list.
 //
-// Props:
-//   mode             — 'add' | 'edit'  (defaults to 'add' for safety)
-//   workId           — required in 'add' mode; the work_history row id
-//   existing         — required in 'edit' mode; the jobsite object being
-//                       edited (must have id, title, kind, location,
-//                       duration, photo_kind, is_featured)
-//   onCancel         — called when the user dismisses without saving
-//   onSaved          — called after a successful save (renamed from
-//                       onAdded so the name fits both modes)
-//   featuredCount    — total featured count across all companies, used to
-//                       enforce the 10-cap on the "Feature" checkbox
-//   featuredCap      — the cap value (default 10)
+// New schema (migration 008):
+//   - title          — required; ghost-suggested from location + job type
+//   - structure_type — required picker (Single-family, Remodel, …)
+//   - job_type       — required picker, trade-aware ordering (nothing hidden)
+//   - location       — free text
+//   - year           — single year (replaces the old freeform "duration")
+//   - photos         — multi-photo gallery; first = primary, reorderable
 //
-// Design choices:
-//   - The same form renders for add + edit. State is initialized from
-//     `existing` when in edit mode.
-//   - The "Photo (optional)" field works slightly differently in edit
-//     mode: it lets the user *attach* (or replace) a new photo. The
-//     existing photo is shown alongside, with a "keep current" affordance.
-//   - In edit mode, the placeholder-style picker is hidden — the user
-//     can change the placeholder via the inline JobsitePhotoCell on the
-//     row itself, and it's a less common need at edit time.
-//   - The PATCH endpoint accepts: title, kind, location, duration,
-//     photo_kind, is_featured — matching the form fields exactly.
+// Props:
+//   mode          — 'add' | 'edit'  (defaults to 'add')
+//   workId        — required in 'add' mode; the work_history row id
+//   existing      — required in 'edit' mode; the jobsite object
+//   primaryTrade  — the user's primary trade name; sorts matching job types
+//                   to the top of the picker
+//   onCancel      — dismiss handler
+//   onSaved       — called after a successful save
+//   featuredCount / featuredCap — enforce the 10-jobsite "Selected work" cap
+//
+// Photo behavior differs by mode:
+//   - ADD:  photos are staged locally (File + preview) and uploaded in order
+//           after the jobsite row is created.
+//   - EDIT: the jobsite exists, so each add/remove/reorder hits the gallery
+//           endpoints immediately. The primary mirror + row thumbnail resync
+//           on close (CompanyEditor reloads on both save and cancel).
+//
+// Legacy rows (pre-008) keep their freeform kind/duration in the DB; the
+// display falls back to them. Editing such a row asks the user to pick the
+// new structured fields before saving.
 function JobsiteForm({
   mode = 'add',
   workId,
   existing,
+  primaryTrade = null,
   onCancel,
   onSaved,
   featuredCount = 0,
@@ -1235,98 +1254,169 @@ function JobsiteForm({
 }) {
   const isEdit = mode === 'edit' && existing;
 
-  // Initialize state from `existing` when editing, blank otherwise.
+  // ── Structured fields ──────────────────────────────────────────────
   const [title, setTitle] = useState(isEdit ? (existing.title || '') : '');
-  const [kind, setKind] = useState(isEdit ? (existing.kind || '') : '');
+  const [structureType, setStructureType] = useState(isEdit ? (existing.structure_type || '') : '');
+  const [jobType, setJobType] = useState(isEdit ? (existing.job_type || '') : '');
   const [location, setLocation] = useState(isEdit ? (existing.location || '') : '');
-  const [duration, setDuration] = useState(isEdit ? (existing.duration || '') : '');
+  const [year, setYear] = useState(isEdit ? (existing.year ? String(existing.year) : '') : '');
   const [photoKind, setPhotoKind] = useState(isEdit ? (existing.photo_kind || 'frame') : 'frame');
   const [featured, setFeatured] = useState(isEdit ? !!existing.is_featured : false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
 
-  // Pending photo upload (optional, both modes). In add mode this gets
-  // uploaded after the jobsite is created; in edit mode it replaces
-  // whatever existing photo is attached to the row.
-  const [pendingFile, setPendingFile] = useState(null);
-  const [pendingPreview, setPendingPreview] = useState(null);
-  const fileRef = React.useRef(null);
+  // Job-type categories sorted so the user's primary trade floats to the top.
+  const jobCategories = React.useMemo(
+    () => orderedJobTypeCategories(primaryTrade), [primaryTrade]
+  );
 
-  // The featured cap only applies when ENABLING featured on a jobsite
-  // that isn't already featured. If it was already featured in edit mode,
-  // we always allow saving with featured=true (toggling within itself
-  // doesn't push the global count over the cap).
+  // Ghost-suggested name from the structured fields. Shown in the placeholder
+  // until the user types their own.
+  const nameSuggestion = suggestJobsiteName({ location, structureType, jobType });
+
+  // The featured cap only applies when ENABLING featured on a jobsite that
+  // isn't already featured. Already-featured rows can always re-save featured.
   const wasFeatured = isEdit && !!existing.is_featured;
   const atCap = !wasFeatured && featuredCount >= featuredCap;
 
-  // Free the object URL when the picked file changes or the form unmounts.
-  useEffect(() => {
-    if (!pendingPreview) return;
-    return () => URL.revokeObjectURL(pendingPreview);
-  }, [pendingPreview]);
+  // ── Photo gallery ──────────────────────────────────────────────────
+  // EDIT mode: live server-backed gallery — each add/remove/reorder hits the
+  //   gallery endpoints immediately and updates `photos` from the response.
+  // ADD  mode: photos are staged locally (`pending`) and uploaded in order
+  //   after the new jobsite row is created.
+  const [photos, setPhotos] = useState(isEdit ? (existing.photos || []) : []); // [{id, urls, position}]
+  const [pending, setPending] = useState([]); // add-mode staged: [{ key, file, url }]
+  const [galleryBusy, setGalleryBusy] = useState(false);
+  const fileRef = React.useRef(null);
+  const pendingKey = React.useRef(0);
 
-  const handleFile = (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setError(null);
-    setPendingFile(file);
-    if (pendingPreview) URL.revokeObjectURL(pendingPreview);
-    setPendingPreview(URL.createObjectURL(file));
-  };
+  // Revoke staged object URLs on unmount. A ref mirrors the latest `pending`
+  // so the cleanup (which runs once) sees the final list.
+  const pendingRef = React.useRef([]);
+  useEffect(() => { pendingRef.current = pending; }, [pending]);
+  useEffect(() => () => pendingRef.current.forEach(p => URL.revokeObjectURL(p.url)), []);
 
-  const clearFile = () => {
-    setPendingFile(null);
-    if (pendingPreview) URL.revokeObjectURL(pendingPreview);
-    setPendingPreview(null);
+  const ACCEPT = 'image/jpeg,image/png,image/webp,image/heic,image/heif';
+
+  // Pick one or more files. Edit mode uploads them immediately (in order);
+  // add mode stages them locally.
+  const onPickFiles = async (e) => {
+    const files = Array.from(e.target.files || []);
     if (fileRef.current) fileRef.current.value = '';
+    if (!files.length) return;
+    setError(null);
+    if (isEdit) {
+      setGalleryBusy(true);
+      try {
+        let latest = photos;
+        for (const file of files) {
+          const fd = new FormData();
+          fd.append('file', file);
+          const res = await api.upload(`/photos/jobsite/${existing.id}`, fd);
+          if (res?.photos) latest = res.photos;
+        }
+        setPhotos(latest);
+      } catch (err) {
+        setError(err.data?.error || 'Photo upload failed.');
+      } finally { setGalleryBusy(false); }
+    } else {
+      setPending(ps => [
+        ...ps,
+        ...files.map(file => ({ key: ++pendingKey.current, file, url: URL.createObjectURL(file) })),
+      ]);
+    }
   };
 
-  // Save handler — branches on mode.
+  const removeLivePhoto = async (photoId) => {
+    setGalleryBusy(true);
+    setError(null);
+    try {
+      const res = await api.delete(`/photos/jobsite/${existing.id}/photo/${photoId}`);
+      setPhotos(res?.photos || []);
+    } catch (err) {
+      setError(err.data?.error || 'Could not remove photo.');
+    } finally { setGalleryBusy(false); }
+  };
+
+  const moveLivePhoto = async (index, dir) => {
+    const j = index + dir;
+    if (j < 0 || j >= photos.length) return;
+    const prev = photos;
+    const next = [...photos];
+    [next[index], next[j]] = [next[j], next[index]];
+    setPhotos(next); // optimistic
+    setGalleryBusy(true);
+    setError(null);
+    try {
+      const res = await api.patch(`/photos/jobsite/${existing.id}/photos`, {
+        order: next.map(p => p.id),
+      });
+      setPhotos(res?.photos || next);
+    } catch (err) {
+      setError(err.data?.error || 'Could not reorder.');
+      setPhotos(prev); // revert
+    } finally { setGalleryBusy(false); }
+  };
+
+  const removePending = (key) => {
+    setPending(ps => {
+      const hit = ps.find(p => p.key === key);
+      if (hit) URL.revokeObjectURL(hit.url);
+      return ps.filter(p => p.key !== key);
+    });
+  };
+
+  const movePending = (index, dir) => {
+    setPending(ps => {
+      const j = index + dir;
+      if (j < 0 || j >= ps.length) return ps;
+      const next = [...ps];
+      [next[index], next[j]] = [next[j], next[index]];
+      return next;
+    });
+  };
+
+  // Required: structure + job type, plus a name (the suggestion counts).
+  const finalTitle = (title.trim() || nameSuggestion).trim();
+  const canSave = !!finalTitle && !!structureType && !!jobType;
+
+  // Save handler — branches on mode. Photos in edit mode are already
+  // persisted via the gallery endpoints; here we only save the text fields.
   const submit = async () => {
-    if (!title.trim()) return;
+    if (!finalTitle) { setError('Give the jobsite a name.'); return; }
+    if (!structureType) { setError('Pick a structure type.'); return; }
+    if (!jobType) { setError('Pick a job type.'); return; }
     setBusy(true);
     setError(null);
     try {
-      let jobsiteId;
+      const payload = {
+        title: finalTitle,
+        structure_type: structureType,
+        job_type: jobType,
+        location: location.trim(),
+        year: year.trim(),
+        photo_kind: photoKind,
+        is_featured: featured,
+      };
 
       if (isEdit) {
-        // EDIT mode: PATCH the existing row.
-        await api.patch(`/jobsites/${existing.id}`, {
-          title: title.trim(),
-          kind: kind.trim(),
-          location: location.trim(),
-          duration: duration.trim(),
-          photo_kind: photoKind,
-          is_featured: featured,
-        });
-        jobsiteId = existing.id;
+        await api.patch(`/jobsites/${existing.id}`, payload);
       } else {
-        // ADD mode: POST to create a new jobsite under the work-history row.
-        const { jobsite } = await api.post(`/work-history/${workId}/jobsites`, {
-          title: title.trim(),
-          kind: kind.trim(),
-          location: location.trim(),
-          duration: duration.trim(),
-          photo_kind: photoKind,
-          is_featured: featured,
-        });
-        jobsiteId = jobsite?.id;
-      }
-
-      // If a photo was picked, upload it against the (now-known) jobsite id.
-      // On photo-upload failure we still consider the row saved; the user
-      // can retry from the row's photo cell later.
-      if (pendingFile && jobsiteId) {
-        try {
-          const fd = new FormData();
-          fd.append('file', pendingFile);
-          await api.upload(`/photos/jobsite/${jobsiteId}`, fd);
-        } catch (photoErr) {
-          setError(
-            (isEdit ? 'Jobsite updated' : 'Jobsite added') +
-            ', but photo upload failed: ' + (photoErr.data?.error || photoErr.message)
-          );
-          // Continue to onSaved so the parent reloads.
+        const { jobsite } = await api.post(`/work-history/${workId}/jobsites`, payload);
+        const jobsiteId = jobsite?.id;
+        // Upload staged photos in order. A single failure is surfaced but we
+        // still finish — the row is saved and other photos may have uploaded.
+        if (jobsiteId && pending.length) {
+          for (const p of pending) {
+            try {
+              const fd = new FormData();
+              fd.append('file', p.file);
+              await api.upload(`/photos/jobsite/${jobsiteId}`, fd);
+            } catch (photoErr) {
+              setError('Jobsite added, but a photo failed to upload: ' +
+                (photoErr.data?.error || photoErr.message));
+            }
+          }
         }
       }
 
@@ -1342,11 +1432,20 @@ function JobsiteForm({
     ? (busy ? 'Saving…' : 'Save changes')
     : (busy ? 'Adding…' : 'Add jobsite');
 
-  // Existing photo preview (only shown in edit mode, when no new pending
-  // photo is queued for upload). Helps the user see what's already there.
-  const existingPhotoSrc = isEdit
-    ? (existing?.photo_urls?.medium || existing?.photo_urls?.thumb)
-    : null;
+  // Unified gallery items for rendering (live photos in edit, staged in add).
+  const galleryItems = isEdit
+    ? photos.map(p => ({
+        key: `live-${p.id}`,
+        src: p.urls?.medium || p.urls?.thumb || p.urls?.full,
+        onRemove: () => removeLivePhoto(p.id),
+      }))
+    : pending.map(p => ({
+        key: `pending-${p.key}`,
+        src: p.url,
+        onRemove: () => removePending(p.key),
+      }));
+  const moveItem = isEdit ? moveLivePhoto : movePending;
+  const galleryCount = galleryItems.length;
 
   return (
     <div style={{
@@ -1360,98 +1459,149 @@ function JobsiteForm({
         }}>{formTitle}</div>
       )}
 
-      <Field label="Jobsite name">
-        <TextInput value={title} onChange={e => setTitle(e.target.value)} placeholder="e.g. Bonneville Residence"/>
-      </Field>
+      {/* Structure + job type drive the name suggestion, so they come first. */}
       <Row>
-        <Field label="Kind">
-          <TextInput value={kind} onChange={e => setKind(e.target.value)} placeholder="Custom Home · 4,200 sqft"/>
+        <Field label="Structure type">
+          <select value={structureType} onChange={e => setStructureType(e.target.value)} style={inputStyle}>
+            <option value="" disabled>Select…</option>
+            {STRUCTURE_TYPES.map(s => <option key={s} value={s}>{s}</option>)}
+          </select>
         </Field>
-        <Field label="Location">
-          <TextInput value={location} onChange={e => setLocation(e.target.value)} placeholder="Park City, UT"/>
+        <Field label="Job type">
+          <select value={jobType} onChange={e => setJobType(e.target.value)} style={inputStyle}>
+            <option value="" disabled>Select…</option>
+            {jobCategories.map(cat => (
+              <optgroup key={cat.label} label={cat.label}>
+                {cat.jobs.map(j => <option key={`${cat.label}-${j}`} value={j}>{j}</option>)}
+              </optgroup>
+            ))}
+          </select>
         </Field>
       </Row>
-      <Field label="Duration">
-        <TextInput value={duration} onChange={e => setDuration(e.target.value)} placeholder="2023–2024"/>
+
+      <Row>
+        <Field label="Location">
+          <TextInput value={location} onChange={e => setLocation(e.target.value)} placeholder="e.g. Holladay, UT"/>
+        </Field>
+        <Field label="Year">
+          <TextInput
+            value={year}
+            onChange={e => setYear(e.target.value.replace(/[^0-9]/g, '').slice(0, 4))}
+            placeholder="2024"
+            inputMode="numeric"
+          />
+        </Field>
+      </Row>
+
+      <Field label="Jobsite name">
+        <TextInput
+          value={title}
+          onChange={e => setTitle(e.target.value)}
+          placeholder={nameSuggestion ? `${nameSuggestion}` : 'e.g. Holladay service upgrade'}
+        />
+        {nameSuggestion && !title.trim() && (
+          <button
+            type="button"
+            onClick={() => setTitle(nameSuggestion)}
+            style={{
+              marginTop: 6, background: 'transparent', border: `1px solid ${B.line}`,
+              color: B.dim, padding: '4px 10px', borderRadius: 100, fontSize: 11,
+              fontWeight: 500, cursor: 'pointer',
+              display: 'inline-flex', alignItems: 'center', gap: 6,
+            }}>
+            <Icon name="plus" size={10} stroke={2.4} style={{ color: B.accent }}/>
+            Use “{nameSuggestion}”
+          </button>
+        )}
       </Field>
 
-      {/* ── Photo (optional) ────────────────────────────────────────
-          In edit mode: show the existing photo (if any) alongside the
-          upload button so the user knows what's currently attached.
-          Picking a new file replaces it on save. */}
-      <Field label={isEdit ? 'Photo (optional · replace if uploading)' : 'Photo (optional)'}>
+      {/* ── Photos gallery ──────────────────────────────────────────
+          First photo = primary. Reorder with the ◂ ▸ arrows. In add mode
+          photos are staged and upload after save; in edit mode each change
+          saves immediately. */}
+      <Field label={
+        galleryCount > 0
+          ? 'Photos — first is the primary; reorder with the arrows'
+          : 'Photos'
+      }>
         <input
           type="file"
           ref={fileRef}
-          accept="image/jpeg,image/png,image/webp,image/heic,image/heif"
-          onChange={handleFile}
+          accept={ACCEPT}
+          multiple
+          onChange={onPickFiles}
           style={{ display: 'none' }}
         />
-
-        {isEdit && existingPhotoSrc && !pendingPreview && (
-          // Existing photo summary row — appears only when there's already
-          // a photo attached and the user hasn't picked a replacement yet.
-          <div style={{
-            display: 'flex', alignItems: 'center', gap: 10,
-            padding: '8px 10px', background: B.surface,
-            border: `1px solid ${B.line}`, borderRadius: 4,
-            marginBottom: 8,
-          }}>
-            <div style={{
-              width: 60, height: 40, borderRadius: 2, overflow: 'hidden',
-              background: `center/cover url("${existingPhotoSrc}") no-repeat`,
+        <div style={{
+          display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-start',
+        }}>
+          {galleryItems.map((item, i) => (
+            <div key={item.key} style={{
+              position: 'relative', width: 96, height: 68, borderRadius: 4,
+              overflow: 'hidden', border: `1px solid ${i === 0 ? B.accent : B.line}`,
+              background: item.src
+                ? `center/cover url("${item.src}") no-repeat`
+                : B.surface2,
               flexShrink: 0,
-            }}/>
-            <span style={{ flex: 1, color: B.dim, fontSize: 12, fontStyle: 'italic' }}>
-              Current photo · attached
-            </span>
-          </div>
-        )}
+            }}>
+              {i === 0 && (
+                <span style={{
+                  position: 'absolute', top: 0, left: 0,
+                  background: B.accent, color: '#fff', fontSize: 9, fontWeight: 700,
+                  padding: '2px 6px', borderBottomRightRadius: 4, letterSpacing: '0.02em',
+                }}>PRIMARY</span>
+              )}
+              <div style={{
+                position: 'absolute', bottom: 0, left: 0, right: 0,
+                display: 'flex', justifyContent: 'center', gap: 2, padding: 2,
+                background: 'linear-gradient(transparent, rgba(0,0,0,0.55))',
+              }}>
+                <button type="button" disabled={galleryBusy || i === 0}
+                  onClick={() => moveItem(i, -1)} title="Move left"
+                  style={galleryCtrlBtn(galleryBusy || i === 0)}>
+                  <Icon name="chevron-l" size={12}/>
+                </button>
+                <button type="button" disabled={galleryBusy || i === galleryCount - 1}
+                  onClick={() => moveItem(i, 1)} title="Move right"
+                  style={galleryCtrlBtn(galleryBusy || i === galleryCount - 1)}>
+                  <Icon name="chevron-r" size={12}/>
+                </button>
+                <button type="button" disabled={galleryBusy}
+                  onClick={item.onRemove} title="Remove"
+                  style={galleryCtrlBtn(galleryBusy)}>
+                  <Icon name="x" size={12}/>
+                </button>
+              </div>
+            </div>
+          ))}
 
-        {!pendingPreview ? (
+          {/* Add tile */}
           <button
             type="button"
-            onClick={() => fileRef.current?.click()}
+            onClick={() => !galleryBusy && fileRef.current?.click()}
+            disabled={galleryBusy}
             style={{
-              width: '100%', padding: 12,
-              background: 'transparent', border: `1px dashed ${B.line}`,
-              borderRadius: 4, color: B.text,
-              fontSize: 12, fontWeight: 600, cursor: 'pointer',
-              display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+              width: 96, height: 68, borderRadius: 4,
+              border: `1px dashed ${B.line}`, background: 'transparent',
+              color: B.dim, cursor: galleryBusy ? 'wait' : 'pointer',
+              display: 'flex', flexDirection: 'column', alignItems: 'center',
+              justifyContent: 'center', gap: 4, flexShrink: 0,
             }}>
-            <Icon name="image" size={14} style={{ color: B.accent }}/>
-            {isEdit && existingPhotoSrc
-              ? 'Upload a new photo to replace'
-              : 'Upload a photo from device'}
-          </button>
-        ) : (
-          <div style={{
-            display: 'flex', alignItems: 'center', gap: 10,
-            padding: '8px 10px', background: B.surface,
-            border: `1px solid ${B.line}`, borderRadius: 4,
-          }}>
-            <div style={{
-              width: 60, height: 40, borderRadius: 2, overflow: 'hidden',
-              background: `center/cover url("${pendingPreview}") no-repeat`,
-              flexShrink: 0,
-            }}/>
-            <span style={{ flex: 1, color: B.text, fontSize: 12 }}>
-              {pendingFile?.name || 'photo'} · will upload after the jobsite is saved
+            <Icon name={galleryBusy ? 'image' : 'plus'} size={16} stroke={2.2} style={{ color: B.accent }}/>
+            <span style={{ fontSize: 10, fontWeight: 600 }}>
+              {galleryBusy ? 'Uploading…' : (galleryCount ? 'Add more' : 'Add photos')}
             </span>
-            <button type="button" onClick={clearFile} style={{
-              background: 'transparent', border: 'none', color: B.dim,
-              padding: 4, cursor: 'pointer', display: 'inline-flex',
-            }}>
-              <Icon name="x" size={12}/>
-            </button>
+          </button>
+        </div>
+        {!isEdit && pending.length > 0 && (
+          <div style={{ color: B.faint, fontSize: 11, fontStyle: 'italic', marginTop: 6 }}>
+            {pending.length} photo{pending.length === 1 ? '' : 's'} will upload after you save.
           </div>
         )}
       </Field>
 
-      {/* Placeholder-style picker — shown in BOTH modes. Even in edit mode
-          the user might want to change the placeholder style (used when
-          there's no real photo). */}
-      <Field label="Placeholder photo style (used when no upload)">
+      {/* Placeholder style — used in displays when a jobsite has no photo. */}
+      <Field label="Placeholder style (shown when there's no photo)">
         <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
           {COVER_KINDS.map(k => (
             <button key={k} onClick={() => setPhotoKind(k)} style={{
@@ -1489,16 +1639,25 @@ function JobsiteForm({
           background: 'transparent', border: 'none', color: B.dim,
           padding: '7px 12px', fontSize: 12, fontWeight: 500, cursor: 'pointer',
         }}>Cancel</button>
-        <button onClick={submit} disabled={busy || !title.trim()} style={{
-          background: title.trim() ? B.accent : B.surface2,
-          color: title.trim() ? '#fff' : B.faint,
+        <button onClick={submit} disabled={busy || !canSave} style={{
+          background: canSave ? B.accent : B.surface2,
+          color: canSave ? '#fff' : B.faint,
           border: 'none', padding: '7px 16px', borderRadius: 100,
-          fontSize: 12, fontWeight: 600, cursor: title.trim() ? 'pointer' : 'not-allowed',
+          fontSize: 12, fontWeight: 600, cursor: canSave ? 'pointer' : 'not-allowed',
         }}>{saveLabel}</button>
       </div>
     </div>
   );
 }
+
+// Small control button used on gallery thumbnails (move/remove).
+const galleryCtrlBtn = (disabled) => ({
+  background: 'rgba(0,0,0,0.45)', border: 'none', color: '#fff',
+  width: 20, height: 18, borderRadius: 3, padding: 0,
+  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+  cursor: disabled ? 'default' : 'pointer',
+  opacity: disabled ? 0.4 : 1,
+});
 
 // ── Tab: Credentials ──────────────────────────────────────────────────
 function CredentialsTab({ profile, onSaved }) {

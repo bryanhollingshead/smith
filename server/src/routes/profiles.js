@@ -74,13 +74,28 @@ async function loadProfile(userId, viewerId) {
       ORDER BY wh.position ASC, wh.id DESC`,
     [userId]
   );
-  // Include jobsite.photo_url so cards can render the uploaded photo.
+  // Include jobsite.photo_url so cards can render the primary photo, plus the
+  // new structured fields (structure_type / job_type / year). kind + duration
+  // are kept for backward-compatible display of pre-refactor rows.
   const jobsitesP = q(
     `SELECT js.id, js.work_history_id, js.title, js.kind, js.location, js.duration,
+            js.structure_type, js.job_type, js.year,
             js.photo_kind, js.photo_url, js.is_featured, js.position
        FROM jobsites js JOIN work_history wh ON wh.id = js.work_history_id
       WHERE wh.user_id = $1
       ORDER BY js.position ASC, js.id ASC`,
+    [userId]
+  );
+  // Full photo gallery for every jobsite owned by this user, ordered so the
+  // primary (lowest position) comes first. Stitched into each jobsite as
+  // photos[]; jobsites.photo_url still mirrors the primary for legacy reads.
+  const jobsitePhotosP = q(
+    `SELECT jp.id, jp.jobsite_id, jp.photo_url, jp.position
+       FROM jobsite_photos jp
+       JOIN jobsites js ON js.id = jp.jobsite_id
+       JOIN work_history wh ON wh.id = js.work_history_id
+      WHERE wh.user_id = $1
+      ORDER BY jp.position ASC, jp.id ASC`,
     [userId]
   );
   const skillsP = q(
@@ -110,9 +125,20 @@ async function loadProfile(userId, viewerId) {
     if (r.rows.length) connection = r.rows[0];
   }
 
-  const [user, trades, licenses, work, jobsites, skills, networkSize] = await Promise.all([
-    userP, tradesP, licensesP, workP, jobsitesP, skillsP, networkSizeP,
+  const [user, trades, licenses, work, jobsites, jobsitePhotos, skills, networkSize] = await Promise.all([
+    userP, tradesP, licensesP, workP, jobsitesP, jobsitePhotosP, skillsP, networkSizeP,
   ]);
+
+  // Group gallery photos by jobsite (already ordered by position).
+  const photosByJobsite = new Map();
+  for (const p of jobsitePhotos.rows) {
+    if (!photosByJobsite.has(p.jobsite_id)) photosByJobsite.set(p.jobsite_id, []);
+    photosByJobsite.get(p.jobsite_id).push({
+      id: p.id,
+      urls: parseUrls(p.photo_url),
+      position: p.position,
+    });
+  }
 
   if (!user.rows.length) return null;
   const u = user.rows[0];
@@ -133,8 +159,12 @@ async function loadProfile(userId, viewerId) {
         kind: js.kind,
         location: js.location,
         duration: js.duration,
+        structure_type: js.structure_type,
+        job_type: js.job_type,
+        year: js.year,
         photo_kind: js.photo_kind,
         photo_urls: parseUrls(js.photo_url),
+        photos: photosByJobsite.get(js.id) || [],
         is_featured: js.is_featured,
         position: js.position,
       });
