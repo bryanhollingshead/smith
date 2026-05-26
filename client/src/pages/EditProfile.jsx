@@ -657,6 +657,11 @@ function WorkHistoryTab({ profile, onSaved, focus }) {
 function CompanyEditor({ co, onChanged, focusAddJobsite, featuredCount, featuredCap }) {
   const [open, setOpen] = useState(false);
   const [addingSite, setAddingSite] = useState(false);
+  // Patch: track which jobsite (if any) is currently being edited inline.
+  // Only one row can be in edit mode at a time per company to keep the UI
+  // calm. Use the jobsite's id as the active value; null means "no row is
+  // being edited."
+  const [editingSiteId, setEditingSiteId] = useState(null);
   const addJobsiteRef = React.useRef(null);
 
   useEffect(() => {
@@ -736,49 +741,83 @@ function CompanyEditor({ co, onChanged, focusAddJobsite, featuredCount, featured
               No jobsites yet under this company.
             </div>
           )}
-          {co.jobsites.map(js => (
-            <div key={js.id} style={{
-              display: 'flex', alignItems: 'center', gap: 12,
-              background: B.surface, border: `1px solid ${B.line}`, borderRadius: 4,
-              padding: '8px 12px', marginBottom: 6,
-            }}>
-              <JobsitePhotoCell jobsite={js} onChanged={onChanged}/>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div className="serif" style={{ color: B.text, fontSize: 13, fontWeight: 600 }}>
-                  {js.title}
+          {co.jobsites.map(js => {
+            // Patch: render inline edit form in place of the row when this
+            // jobsite is the one being edited. Otherwise show the normal
+            // row with action buttons including a new Edit affordance.
+            if (editingSiteId === js.id) {
+              return (
+                <JobsiteForm
+                  key={`edit-${js.id}`}
+                  mode="edit"
+                  existing={js}
+                  onCancel={() => setEditingSiteId(null)}
+                  onSaved={() => { setEditingSiteId(null); onChanged?.(); }}
+                  featuredCount={featuredCount}
+                  featuredCap={featuredCap}
+                />
+              );
+            }
+            return (
+              <div key={js.id} style={{
+                display: 'flex', alignItems: 'center', gap: 12,
+                background: B.surface, border: `1px solid ${B.line}`, borderRadius: 4,
+                padding: '8px 12px', marginBottom: 6,
+              }}>
+                <JobsitePhotoCell jobsite={js} onChanged={onChanged}/>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div className="serif" style={{ color: B.text, fontSize: 13, fontWeight: 600 }}>
+                    {js.title}
+                  </div>
+                  <div style={{ color: B.dim, fontSize: 11 }}>
+                    {js.kind}{js.location ? ` · ${js.location}` : ''}{js.duration ? ` · ${js.duration}` : ''}
+                  </div>
                 </div>
-                <div style={{ color: B.dim, fontSize: 11 }}>
-                  {js.kind}{js.location ? ` · ${js.location}` : ''}{js.duration ? ` · ${js.duration}` : ''}
-                </div>
+                <button
+                  onClick={() => toggleFeatured(js)}
+                  title={js.is_featured
+                    ? 'Featured in "Selected work" — click to unfeature'
+                    : (featuredCount >= featuredCap
+                        ? `Cap reached (${featuredCap}). Unfeature another first.`
+                        : 'Feature in "Selected work"')}
+                  style={{
+                    ...miniBtn,
+                    color: js.is_featured ? B.accent : B.faint,
+                    opacity: (!js.is_featured && featuredCount >= featuredCap) ? 0.4 : 1,
+                    cursor: (!js.is_featured && featuredCount >= featuredCap) ? 'not-allowed' : 'pointer',
+                  }}>
+                  <svg width={14} height={14} viewBox="0 0 24 24"
+                       fill={js.is_featured ? 'currentColor' : 'none'}
+                       stroke="currentColor" strokeWidth="1.8"
+                       strokeLinecap="round" strokeLinejoin="round">
+                    <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+                  </svg>
+                </button>
+                {/* Patch: Edit button. Opens the jobsite row in edit mode,
+                    swapping the static row for a pre-filled form. */}
+                <button
+                  onClick={() => {
+                    setEditingSiteId(js.id);
+                    // If user clicks edit while adding a new one, cancel the add.
+                    setAddingSite(false);
+                  }}
+                  title="Edit this jobsite"
+                  style={{ ...miniBtn, color: B.dim }}>
+                  <span style={{ fontSize: 11, fontWeight: 600 }}>Edit</span>
+                </button>
+                <button onClick={() => removeJobsite(js.id)} style={{ ...miniBtn, color: B.danger }}>
+                  <Icon name="trash" size={13}/>
+                </button>
               </div>
-              <button
-                onClick={() => toggleFeatured(js)}
-                title={js.is_featured
-                  ? 'Featured in "Selected work" — click to unfeature'
-                  : (featuredCount >= featuredCap
-                      ? `Cap reached (${featuredCap}). Unfeature another first.`
-                      : 'Feature in "Selected work"')}
-                style={{
-                  ...miniBtn,
-                  color: js.is_featured ? B.accent : B.faint,
-                  opacity: (!js.is_featured && featuredCount >= featuredCap) ? 0.4 : 1,
-                  cursor: (!js.is_featured && featuredCount >= featuredCap) ? 'not-allowed' : 'pointer',
-                }}>
-                <svg width={14} height={14} viewBox="0 0 24 24"
-                     fill={js.is_featured ? 'currentColor' : 'none'}
-                     stroke="currentColor" strokeWidth="1.8"
-                     strokeLinecap="round" strokeLinejoin="round">
-                  <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
-                </svg>
-              </button>
-              <button onClick={() => removeJobsite(js.id)} style={{ ...miniBtn, color: B.danger }}>
-                <Icon name="trash" size={13}/>
-              </button>
-            </div>
-          ))}
+            );
+          })}
           <div ref={addJobsiteRef} style={{ display: 'inline-block' }}>
             {!addingSite && (
-              <button onClick={() => setAddingSite(true)} style={{
+              <button onClick={() => {
+                setAddingSite(true);
+                // If user clicks add while editing another, cancel the edit.
+                setEditingSiteId(null);
+              }} style={{
                 marginTop: 8, background: 'transparent', border: `1px dashed ${B.line}`,
                 color: B.dim, padding: '8px 14px', borderRadius: 4, fontSize: 12, fontWeight: 500,
                 cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6,
@@ -787,10 +826,11 @@ function CompanyEditor({ co, onChanged, focusAddJobsite, featuredCount, featured
               </button>
             )}
             {addingSite && (
-              <AddJobsiteForm
+              <JobsiteForm
+                mode="add"
                 workId={co.id}
                 onCancel={() => setAddingSite(false)}
-                onAdded={() => { setAddingSite(false); onChanged?.(); }}
+                onSaved={() => { setAddingSite(false); onChanged?.(); }}
                 featuredCount={featuredCount}
                 featuredCap={featuredCap}
               />
@@ -1149,22 +1189,70 @@ function AddCompanyForm({ onCancel, onAdded }) {
   );
 }
 
-function AddJobsiteForm({ workId, onCancel, onAdded, featuredCount = 0, featuredCap = 10 }) {
-  const [title, setTitle] = useState('');
-  const [kind, setKind] = useState('');
-  const [location, setLocation] = useState('');
-  const [duration, setDuration] = useState('');
-  const [photoKind, setPhotoKind] = useState('frame');
-  const [featured, setFeatured] = useState(false);
+// ── Jobsite form (add + edit) ─────────────────────────────────────────
+//
+// Renamed from `AddJobsiteForm` to `JobsiteForm` because it now handles
+// both modes: adding a new jobsite under a company, OR editing an existing
+// one inline within the work-history list.
+//
+// Props:
+//   mode             — 'add' | 'edit'  (defaults to 'add' for safety)
+//   workId           — required in 'add' mode; the work_history row id
+//   existing         — required in 'edit' mode; the jobsite object being
+//                       edited (must have id, title, kind, location,
+//                       duration, photo_kind, is_featured)
+//   onCancel         — called when the user dismisses without saving
+//   onSaved          — called after a successful save (renamed from
+//                       onAdded so the name fits both modes)
+//   featuredCount    — total featured count across all companies, used to
+//                       enforce the 10-cap on the "Feature" checkbox
+//   featuredCap      — the cap value (default 10)
+//
+// Design choices:
+//   - The same form renders for add + edit. State is initialized from
+//     `existing` when in edit mode.
+//   - The "Photo (optional)" field works slightly differently in edit
+//     mode: it lets the user *attach* (or replace) a new photo. The
+//     existing photo is shown alongside, with a "keep current" affordance.
+//   - In edit mode, the placeholder-style picker is hidden — the user
+//     can change the placeholder via the inline JobsitePhotoCell on the
+//     row itself, and it's a less common need at edit time.
+//   - The PATCH endpoint accepts: title, kind, location, duration,
+//     photo_kind, is_featured — matching the form fields exactly.
+function JobsiteForm({
+  mode = 'add',
+  workId,
+  existing,
+  onCancel,
+  onSaved,
+  featuredCount = 0,
+  featuredCap = 10,
+}) {
+  const isEdit = mode === 'edit' && existing;
+
+  // Initialize state from `existing` when editing, blank otherwise.
+  const [title, setTitle] = useState(isEdit ? (existing.title || '') : '');
+  const [kind, setKind] = useState(isEdit ? (existing.kind || '') : '');
+  const [location, setLocation] = useState(isEdit ? (existing.location || '') : '');
+  const [duration, setDuration] = useState(isEdit ? (existing.duration || '') : '');
+  const [photoKind, setPhotoKind] = useState(isEdit ? (existing.photo_kind || 'frame') : 'frame');
+  const [featured, setFeatured] = useState(isEdit ? !!existing.is_featured : false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
-  // Pending photo: user picks a file before submit; we hold it locally and
-  // upload it AFTER the jobsite is created (since the upload route needs the
-  // jobsite id). The preview comes from a local object URL.
+
+  // Pending photo upload (optional, both modes). In add mode this gets
+  // uploaded after the jobsite is created; in edit mode it replaces
+  // whatever existing photo is attached to the row.
   const [pendingFile, setPendingFile] = useState(null);
   const [pendingPreview, setPendingPreview] = useState(null);
   const fileRef = React.useRef(null);
-  const atCap = featuredCount >= featuredCap;
+
+  // The featured cap only applies when ENABLING featured on a jobsite
+  // that isn't already featured. If it was already featured in edit mode,
+  // we always allow saving with featured=true (toggling within itself
+  // doesn't push the global count over the cap).
+  const wasFeatured = isEdit && !!existing.is_featured;
+  const atCap = !wasFeatured && featuredCount >= featuredCap;
 
   // Free the object URL when the picked file changes or the form unmounts.
   useEffect(() => {
@@ -1188,47 +1276,85 @@ function AddJobsiteForm({ workId, onCancel, onAdded, featuredCount = 0, featured
     if (fileRef.current) fileRef.current.value = '';
   };
 
+  // Save handler — branches on mode.
   const submit = async () => {
     if (!title.trim()) return;
     setBusy(true);
     setError(null);
     try {
-      // 1. Create the jobsite (need its id to attach a photo).
-      const { jobsite } = await api.post(`/work-history/${workId}/jobsites`, {
-        title: title.trim(),
-        kind: kind.trim(),
-        location: location.trim(),
-        duration: duration.trim(),
-        photo_kind: photoKind,
-        is_featured: featured,
-      });
+      let jobsiteId;
 
-      // 2. If a photo was picked, upload it now against the new jobsite id.
-      //    On photo-upload failure, we still consider the jobsite created;
-      //    the user can add a photo later by clicking the photo cell.
-      if (pendingFile && jobsite?.id) {
+      if (isEdit) {
+        // EDIT mode: PATCH the existing row.
+        await api.patch(`/jobsites/${existing.id}`, {
+          title: title.trim(),
+          kind: kind.trim(),
+          location: location.trim(),
+          duration: duration.trim(),
+          photo_kind: photoKind,
+          is_featured: featured,
+        });
+        jobsiteId = existing.id;
+      } else {
+        // ADD mode: POST to create a new jobsite under the work-history row.
+        const { jobsite } = await api.post(`/work-history/${workId}/jobsites`, {
+          title: title.trim(),
+          kind: kind.trim(),
+          location: location.trim(),
+          duration: duration.trim(),
+          photo_kind: photoKind,
+          is_featured: featured,
+        });
+        jobsiteId = jobsite?.id;
+      }
+
+      // If a photo was picked, upload it against the (now-known) jobsite id.
+      // On photo-upload failure we still consider the row saved; the user
+      // can retry from the row's photo cell later.
+      if (pendingFile && jobsiteId) {
         try {
           const fd = new FormData();
           fd.append('file', pendingFile);
-          await api.upload(`/photos/jobsite/${jobsite.id}`, fd);
+          await api.upload(`/photos/jobsite/${jobsiteId}`, fd);
         } catch (photoErr) {
-          // Surface a soft warning but keep the row created.
-          setError('Jobsite added, but photo upload failed: ' + (photoErr.data?.error || photoErr.message));
-          // Continue to onAdded so the parent reloads; user sees the row.
+          setError(
+            (isEdit ? 'Jobsite updated' : 'Jobsite added') +
+            ', but photo upload failed: ' + (photoErr.data?.error || photoErr.message)
+          );
+          // Continue to onSaved so the parent reloads.
         }
       }
 
-      onAdded?.();
+      onSaved?.();
     } catch (e) {
-      setError(e.data?.error || 'Could not save jobsite.');
+      setError(e.data?.error || (isEdit ? 'Could not update jobsite.' : 'Could not save jobsite.'));
     } finally { setBusy(false); }
   };
+
+  // Header text + button labels differ between modes.
+  const formTitle = isEdit ? 'Edit jobsite' : null;
+  const saveLabel = isEdit
+    ? (busy ? 'Saving…' : 'Save changes')
+    : (busy ? 'Adding…' : 'Add jobsite');
+
+  // Existing photo preview (only shown in edit mode, when no new pending
+  // photo is queued for upload). Helps the user see what's already there.
+  const existingPhotoSrc = isEdit
+    ? (existing?.photo_urls?.medium || existing?.photo_urls?.thumb)
+    : null;
 
   return (
     <div style={{
       marginTop: 10, padding: 14,
       background: B.bg, border: `1px solid ${B.line}`, borderRadius: 4,
     }} className="fade-in">
+      {formTitle && (
+        <div className="serif" style={{
+          color: B.text, fontWeight: 600, fontSize: 14,
+          marginBottom: 12, letterSpacing: '-0.01em',
+        }}>{formTitle}</div>
+      )}
+
       <Field label="Jobsite name">
         <TextInput value={title} onChange={e => setTitle(e.target.value)} placeholder="e.g. Bonneville Residence"/>
       </Field>
@@ -1244,10 +1370,11 @@ function AddJobsiteForm({ workId, onCancel, onAdded, featuredCount = 0, featured
         <TextInput value={duration} onChange={e => setDuration(e.target.value)} placeholder="2023–2024"/>
       </Field>
 
-      {/* ── Real photo upload (optional) ───────────────────────────────
-          Uploaded wins, but the photo_kind below remains as a fallback
-          for jobsites without a real photo. */}
-      <Field label="Photo (optional)">
+      {/* ── Photo (optional) ────────────────────────────────────────
+          In edit mode: show the existing photo (if any) alongside the
+          upload button so the user knows what's currently attached.
+          Picking a new file replaces it on save. */}
+      <Field label={isEdit ? 'Photo (optional · replace if uploading)' : 'Photo (optional)'}>
         <input
           type="file"
           ref={fileRef}
@@ -1255,6 +1382,27 @@ function AddJobsiteForm({ workId, onCancel, onAdded, featuredCount = 0, featured
           onChange={handleFile}
           style={{ display: 'none' }}
         />
+
+        {isEdit && existingPhotoSrc && !pendingPreview && (
+          // Existing photo summary row — appears only when there's already
+          // a photo attached and the user hasn't picked a replacement yet.
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 10,
+            padding: '8px 10px', background: B.surface,
+            border: `1px solid ${B.line}`, borderRadius: 4,
+            marginBottom: 8,
+          }}>
+            <div style={{
+              width: 60, height: 40, borderRadius: 2, overflow: 'hidden',
+              background: `center/cover url("${existingPhotoSrc}") no-repeat`,
+              flexShrink: 0,
+            }}/>
+            <span style={{ flex: 1, color: B.dim, fontSize: 12, fontStyle: 'italic' }}>
+              Current photo · attached
+            </span>
+          </div>
+        )}
+
         {!pendingPreview ? (
           <button
             type="button"
@@ -1267,7 +1415,9 @@ function AddJobsiteForm({ workId, onCancel, onAdded, featuredCount = 0, featured
               display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8,
             }}>
             <Icon name="image" size={14} style={{ color: B.accent }}/>
-            Upload a photo from device
+            {isEdit && existingPhotoSrc
+              ? 'Upload a new photo to replace'
+              : 'Upload a photo from device'}
           </button>
         ) : (
           <div style={{
@@ -1293,6 +1443,9 @@ function AddJobsiteForm({ workId, onCancel, onAdded, featuredCount = 0, featured
         )}
       </Field>
 
+      {/* Placeholder-style picker — shown in BOTH modes. Even in edit mode
+          the user might want to change the placeholder style (used when
+          there's no real photo). */}
       <Field label="Placeholder photo style (used when no upload)">
         <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
           {COVER_KINDS.map(k => (
@@ -1336,7 +1489,7 @@ function AddJobsiteForm({ workId, onCancel, onAdded, featuredCount = 0, featured
           color: title.trim() ? '#fff' : B.faint,
           border: 'none', padding: '7px 16px', borderRadius: 100,
           fontSize: 12, fontWeight: 600, cursor: title.trim() ? 'pointer' : 'not-allowed',
-        }}>{busy ? 'Adding…' : 'Add jobsite'}</button>
+        }}>{saveLabel}</button>
       </div>
     </div>
   );
