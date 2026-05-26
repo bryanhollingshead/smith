@@ -10,11 +10,39 @@ const router = Router();
 // Order user ids so (a, b) is canonical for the row.
 const pair = (x, y) => (x < y ? [x, y] : [y, x]);
 
+// avatar_url and cover_url are JSON blobs of shape {thumb, medium, full} —
+// the same parseUrls helper used by profiles.js converts the stored DB
+// value (possibly a JSON string, possibly NULL) into a usable object for
+// the client. Matches the public contract used everywhere else in the API.
+function parseUrls(value) {
+  if (!value) return null;
+  if (typeof value === 'object') return value;
+  try { return JSON.parse(value); }
+  catch { return null; }
+}
+
+// Re-shape a raw DB row into the wire shape the client expects. Flips the
+// avatar_url + cover_url JSON columns into avatar_urls / cover_urls so the
+// client's <SmithAvatar> can read them. Other fields pass through.
+function shapeCard(row) {
+  const { avatar_url, cover_url, ...rest } = row;
+  return {
+    ...rest,
+    avatar_urls: parseUrls(avatar_url),
+    cover_urls:  parseUrls(cover_url),
+  };
+}
+
 // Common SELECT shape for a connection-card row (matches design fields:
-// name, role/co/loc, mutual, tone). "Role" is sourced from the user's most
-// recent work_history entry; falls back to headline.
+// name, role/co/loc, mutual, tone, photos). "Role" is sourced from the user's
+// most recent work_history entry; falls back to headline.
+//
+// Patch: added u.avatar_url, u.cover_url so connection cards can render
+// uploaded profile + cover photos (previously cards always fell back to
+// placeholders since these columns weren't selected).
 const CARD_SQL = `
   SELECT u.id, u.first_name, u.last_name, u.headline, u.location, u.avatar_tone,
+         u.avatar_url, u.cover_url,
          (SELECT c.name FROM work_history w JOIN companies c ON c.id = w.company_id
             WHERE w.user_id = u.id ORDER BY w.position ASC LIMIT 1) AS company_name,
          (SELECT w.role FROM work_history w
@@ -51,7 +79,7 @@ router.get('/', requireAuth, async (req, res) => {
   // Add mutual counts in one extra query each — fine at expected scale; can
   // batch later if needed.
   const out = await Promise.all(rows.map(async r => ({
-    ...r,
+    ...shapeCard(r),
     mutual: await mutualCount(req.userId, r.id),
   })));
   res.json({ connections: out });
@@ -68,7 +96,7 @@ router.get('/pending', requireAuth, async (req, res) => {
       ORDER BY cn.created_at DESC`,
     [req.userId]
   );
-  res.json({ pending: rows });
+  res.json({ pending: rows.map(shapeCard) });
 });
 
 // GET /api/connections/suggestions — people you may know
@@ -105,7 +133,7 @@ router.get('/suggestions', requireAuth, async (req, res) => {
   );
 
   if (friendsOfFriends.length >= limit) {
-    return res.json({ suggestions: friendsOfFriends });
+    return res.json({ suggestions: friendsOfFriends.map(shapeCard) });
   }
 
   // Top-up with same-location candidates (excluding existing).
@@ -134,7 +162,7 @@ router.get('/suggestions', requireAuth, async (req, res) => {
     ...fill.rows.filter(r => !haveIds.has(r.id)).map(r => ({ ...r, mutual: 0 })),
   ].slice(0, limit);
 
-  res.json({ suggestions: merged });
+  res.json({ suggestions: merged.map(shapeCard) });
 });
 
 // POST /api/connections/request  Body: { target_id }

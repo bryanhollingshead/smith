@@ -8,6 +8,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { B } from '../lib/theme.js';
 import { TopNav } from '../components/TopNav.jsx';
 import { Avatar, Photo } from '../components/Primitives.jsx';
+import { SmithAvatar } from '../components/SmithAvatar.jsx';
 import { Icon } from '../components/Icon.jsx';
 import { api } from '../lib/api.js';
 import { useRouter } from '../lib/router.jsx';
@@ -153,6 +154,23 @@ export function NetworkPage() {
   );
 }
 
+// CoverBand: renders the user's uploaded cover photo if present, otherwise
+// falls back to the placeholder Photo component (which renders a tone-based
+// abstract image). Keeps the visual rhythm even for users who haven't
+// uploaded yet — connection cards always have a header strip.
+function CoverBand({ urls, tone, height = 64 }) {
+  const src = urls?.medium || urls?.full || urls?.thumb;
+  if (src) {
+    return (
+      <div style={{
+        width: '100%', height,
+        background: `center/cover url("${src}") no-repeat`,
+      }}/>
+    );
+  }
+  return <Photo kind={photoFor(tone)} label="" height={height}/>;
+}
+
 function ConnectionCard({ tab, card, onView, onChange }) {
   const [busy, setBusy] = useState(false);
 
@@ -179,14 +197,23 @@ function ConnectionCard({ tab, card, onView, onChange }) {
       background: B.surface, border: `1px solid ${B.line}`, borderRadius: 4,
       overflow: 'hidden',
     }}>
-      <Photo kind={photoFor(card.avatar_tone)} label="" height={64}/>
+      {/* Patch: render uploaded cover photo when present, fall back to the
+          previous tone-based placeholder otherwise. */}
+      <CoverBand urls={card.cover_urls} tone={card.avatar_tone} height={64}/>
       <div style={{ padding: '0 22px 22px', marginTop: -32 }}>
         <button onClick={onView} style={{
           background: 'transparent', border: 'none', padding: 0, cursor: 'pointer',
           borderRadius: '50%',
         }}>
           <span style={{ background: B.surface, padding: 4, borderRadius: '50%', display: 'inline-block' }}>
-            <Avatar initials={initials} size={62} tone={card.avatar_tone}/>
+            {/* Patch: SmithAvatar renders an uploaded avatar photo when
+                avatar_urls is present, falls back to tone+initials otherwise. */}
+            <SmithAvatar
+              urls={card.avatar_urls}
+              initials={initials}
+              size={62}
+              tone={card.avatar_tone}
+            />
           </span>
         </button>
         <div style={{ marginTop: 14 }}>
