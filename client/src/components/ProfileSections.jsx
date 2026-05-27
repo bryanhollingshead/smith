@@ -189,49 +189,6 @@ function ConnectButton({ profile, onConnect }) {
   );
 }
 
-// ── Jobsite photo gallery ──────────────────────────────────────────────
-// Equal-sized photos, no enlarged "primary" and no thumbnail strip. One
-// photo → a single full-width tile (matching every other card). Several →
-// an equal 2-up grid (two per row, wrapping into rows), like the images in
-// the A Plus cards. Multi-photo jobsite cards span the full width (see
-// CompaniesSection) so the 2-up tiles land at full A-Plus-image size.
-//
-// Read order: prefer the multi-photo `photos[]` from the API; fall back to
-// the legacy single `photo_urls` (primary mirror) for un-migrated rows; and
-// finally the procedural placeholder when a jobsite has no photo at all.
-function JobsiteGallery({ js }) {
-  const gallery = (js.photos && js.photos.length)
-    ? js.photos
-    : (js.photo_urls ? [{ id: 'primary', urls: js.photo_urls }] : []);
-
-  if (gallery.length === 0) {
-    return <Photo kind={js.photo_kind} label={js.title.toLowerCase()} height={132}/>;
-  }
-
-  const src = (u) => u?.medium || u?.full || u?.thumb;
-  const multi = gallery.length > 1;
-
-  // Single photo sits flush inside its bordered card (like every other card).
-  // Multiple photos become individually bordered/rounded tiles in a 2-up grid
-  // with the same 10px gap the company uses between jobsite cards — so a
-  // jobsite's photos read exactly like the A Plus image tiles.
-  return (
-    <div style={{
-      display: 'grid',
-      gridTemplateColumns: multi ? 'repeat(2, 1fr)' : '1fr',
-      gap: multi ? 10 : 0,
-    }}>
-      {gallery.map(p => (
-        <div key={p.id} style={{
-          height: 132,
-          background: `center/cover url("${src(p.urls)}") no-repeat ${B.bg}`,
-          ...(multi ? { border: `1px solid ${B.line}`, borderRadius: 4 } : {}),
-        }}/>
-      ))}
-    </div>
-  );
-}
-
 // ── Where I've worked ──────────────────────────────────────────────────
 export function CompaniesSection({ profile, isMe, onEdit }) {
   // Default open = the most recent (current) company; collapse the rest.
@@ -353,35 +310,41 @@ export function CompaniesSection({ profile, isMe, onEdit }) {
                   gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))',
                   gap: 10,
                 }}>
-                  {co.jobsites.map(js => {
-                    // Multi-photo jobsites span the full row and present their
-                    // photos as bordered tiles (see JobsiteGallery), so the
-                    // enclosing card chrome is dropped to avoid double-framing.
-                    const multi = (js.photos?.length || 0) > 1;
-                    return (
-                      <div key={js.id} style={{
-                        display: 'flex', flexDirection: 'column',
-                        gridColumn: multi ? '1 / -1' : undefined,
-                        ...(multi ? {} : {
-                          background: B.bg, border: `1px solid ${B.line}`,
-                          borderRadius: 4, overflow: 'hidden',
-                        }),
-                      }}>
-                        <JobsiteGallery js={js}/>
-                        <div style={{ padding: multi ? '10px 2px 0' : '10px 14px', flex: 1 }}>
-                          <div className="serif" style={{
-                            color: B.text, fontWeight: 600, fontSize: 14,
-                          }}>{js.title}</div>
-                          <div style={{ color: B.dim, fontSize: 12, marginTop: 2 }}>
-                            {[js.structure_type, js.job_type].filter(Boolean).join(' · ') || js.kind}
-                          </div>
-                          <div style={{ color: B.faint, fontSize: 11, marginTop: 6 }}>
-                            {[js.location, js.year || js.duration].filter(Boolean).join(' · ')}
-                          </div>
+                  {co.jobsites.flatMap(js => {
+                    // One card per photo, each carrying the jobsite's
+                    // descriptive text — so every photo reads in context,
+                    // identical to the single-photo cards. A no-photo jobsite
+                    // still yields one (placeholder) card.
+                    const photos = (js.photos && js.photos.length)
+                      ? js.photos
+                      : [{ id: 'primary', urls: js.photo_urls || null }];
+                    return photos.map(p => ({ js, p }));
+                  }).map(({ js, p }) => (
+                    <div key={`${js.id}-${p.id}`} style={{
+                      background: B.bg, border: `1px solid ${B.line}`, borderRadius: 4,
+                      overflow: 'hidden', display: 'flex', flexDirection: 'column',
+                    }}>
+                      {p.urls ? (
+                        <div style={{
+                          height: 132,
+                          background: `center/cover url("${p.urls.medium || p.urls.full || p.urls.thumb}") no-repeat ${B.bg}`,
+                        }}/>
+                      ) : (
+                        <Photo kind={js.photo_kind} label={js.title.toLowerCase()} height={132}/>
+                      )}
+                      <div style={{ padding: '10px 14px', flex: 1 }}>
+                        <div className="serif" style={{
+                          color: B.text, fontWeight: 600, fontSize: 14,
+                        }}>{js.title}</div>
+                        <div style={{ color: B.dim, fontSize: 12, marginTop: 2 }}>
+                          {[js.structure_type, js.job_type].filter(Boolean).join(' · ') || js.kind}
+                        </div>
+                        <div style={{ color: B.faint, fontSize: 11, marginTop: 6 }}>
+                          {[js.location, js.year || js.duration].filter(Boolean).join(' · ')}
                         </div>
                       </div>
-                    );
-                  })}
+                    </div>
+                  ))}
                 </div>
               </div>
             )}
