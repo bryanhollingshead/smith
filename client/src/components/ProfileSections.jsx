@@ -190,9 +190,10 @@ function ConnectButton({ profile, onConnect }) {
 }
 
 // ── Jobsite photo gallery ──────────────────────────────────────────────
-// Renders every photo a jobsite has, primary first. The primary spans the
-// full card width; any remaining photos sit below it in a thumbnail grid
-// ("all-photos grid" — everything visible, no click-to-enlarge).
+// Renders every photo a jobsite has at equal size, stacked full-width — no
+// enlarged "primary" and no thumbnail strip. A single-photo jobsite is just
+// one full-width image (matching the rest of the cards); a multi-photo one
+// stacks several identical tiles.
 //
 // Read order: prefer the multi-photo `photos[]` from the API; fall back to
 // the legacy single `photo_urls` (primary mirror) for un-migrated rows; and
@@ -207,27 +208,15 @@ function JobsiteGallery({ js }) {
   }
 
   const src = (u) => u?.medium || u?.full || u?.thumb;
-  const [primary, ...rest] = gallery;
 
   return (
-    <div>
-      <div style={{
-        height: 132,
-        background: `center/cover url("${src(primary.urls)}") no-repeat`,
-      }}/>
-      {rest.length > 0 && (
-        <div style={{
-          display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)',
-          gap: 2, padding: 2, background: B.line,
-        }}>
-          {rest.map(p => (
-            <div key={p.id} style={{
-              paddingTop: '72%',
-              background: `center/cover url("${src(p.urls)}") no-repeat ${B.bg}`,
-            }}/>
-          ))}
-        </div>
-      )}
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+      {gallery.map(p => (
+        <div key={p.id} style={{
+          height: 132,
+          background: `center/cover url("${src(p.urls)}") no-repeat ${B.bg}`,
+        }}/>
+      ))}
     </div>
   );
 }
