@@ -189,6 +189,45 @@ function ConnectButton({ profile, onConnect }) {
   );
 }
 
+// ── About ───────────────────────────────────────────────────────────────
+// The free-text bio. Hidden for visitors when empty; prompts the owner to
+// write one. `pre-wrap` preserves the line breaks typed in the editor.
+export function AboutSection({ profile, isMe, onEdit }) {
+  const about = (profile.about || '').trim();
+
+  if (!about) {
+    if (!isMe) return null;
+    return (
+      <EmptySection
+        title="About"
+        ownPrompt={{
+          headline: 'Tell people what you build.',
+          body: 'A few lines on how you work, what you specialize in, and what you’ve learned on the job.',
+          cta: 'Write your bio',
+        }}
+        isMe={isMe}
+        onEdit={onEdit}
+      />
+    );
+  }
+
+  return (
+    <section style={{
+      background: B.surface, border: `1px solid ${B.line}`, borderRadius: 4,
+      padding: '32px 40px',
+    }}>
+      <h2 className="serif" style={{
+        margin: '0 0 16px', fontSize: 24, fontWeight: 600,
+        color: B.text, letterSpacing: '-0.01em',
+      }}>About</h2>
+      <p style={{
+        color: B.text, fontSize: 15, lineHeight: 1.65, margin: 0,
+        whiteSpace: 'pre-wrap',
+      }}>{about}</p>
+    </section>
+  );
+}
+
 // ── Where I've worked ──────────────────────────────────────────────────
 export function CompaniesSection({ profile, isMe, onEdit }) {
   // Default open = the most recent (current) company; collapse the rest.

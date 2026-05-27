@@ -7,7 +7,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { B } from '../lib/theme.js';
 import { TopNav } from '../components/TopNav.jsx';
 import {
-  ProfileHeader, CompaniesSection, FeaturedSection,
+  ProfileHeader, AboutSection, CompaniesSection, FeaturedSection,
   CredentialsSection, ProfileRightRail, ProfileStrengthBanner,
 } from '../components/ProfileSections.jsx';
 import { api } from '../lib/api.js';
@@ -69,6 +69,7 @@ export function ProfilePage({ userId }) {
                 onEdit={() => navigate('/profile/edit')}
                 onConnect={() => load()}
               />
+              <AboutSection profile={profile} isMe={isMe} onEdit={() => navigate('/profile/edit')}/>
               {isMe && <ProfileStrengthBanner onEdit={() => navigate('/profile/edit')}/>}
               <FeaturedSection profile={profile} isMe={isMe} navigate={navigate} onEdit={() => navigate('/profile/edit')}/>
               <CompaniesSection profile={profile} isMe={isMe} onEdit={() => navigate('/profile/edit')}/>
