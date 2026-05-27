@@ -209,17 +209,23 @@ function JobsiteGallery({ js }) {
   }
 
   const src = (u) => u?.medium || u?.full || u?.thumb;
+  const multi = gallery.length > 1;
 
+  // Single photo sits flush inside its bordered card (like every other card).
+  // Multiple photos become individually bordered/rounded tiles in a 2-up grid
+  // with the same 10px gap the company uses between jobsite cards — so a
+  // jobsite's photos read exactly like the A Plus image tiles.
   return (
     <div style={{
       display: 'grid',
-      gridTemplateColumns: gallery.length > 1 ? 'repeat(2, 1fr)' : '1fr',
-      gap: 2,
+      gridTemplateColumns: multi ? 'repeat(2, 1fr)' : '1fr',
+      gap: multi ? 10 : 0,
     }}>
       {gallery.map(p => (
         <div key={p.id} style={{
           height: 132,
           background: `center/cover url("${src(p.urls)}") no-repeat ${B.bg}`,
+          ...(multi ? { border: `1px solid ${B.line}`, borderRadius: 4 } : {}),
         }}/>
       ))}
     </div>
@@ -347,28 +353,35 @@ export function CompaniesSection({ profile, isMe, onEdit }) {
                   gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))',
                   gap: 10,
                 }}>
-                  {co.jobsites.map(js => (
-                    <div key={js.id} style={{
-                      background: B.bg, border: `1px solid ${B.line}`, borderRadius: 4,
-                      overflow: 'hidden', display: 'flex', flexDirection: 'column',
-                      // Multi-photo jobsites span the full row so their 2-up
-                      // photo grid renders at full A-Plus-image size.
-                      gridColumn: (js.photos?.length || 0) > 1 ? '1 / -1' : undefined,
-                    }}>
-                      <JobsiteGallery js={js}/>
-                      <div style={{ padding: '10px 14px', flex: 1 }}>
-                        <div className="serif" style={{
-                          color: B.text, fontWeight: 600, fontSize: 14,
-                        }}>{js.title}</div>
-                        <div style={{ color: B.dim, fontSize: 12, marginTop: 2 }}>
-                          {[js.structure_type, js.job_type].filter(Boolean).join(' · ') || js.kind}
-                        </div>
-                        <div style={{ color: B.faint, fontSize: 11, marginTop: 6 }}>
-                          {[js.location, js.year || js.duration].filter(Boolean).join(' · ')}
+                  {co.jobsites.map(js => {
+                    // Multi-photo jobsites span the full row and present their
+                    // photos as bordered tiles (see JobsiteGallery), so the
+                    // enclosing card chrome is dropped to avoid double-framing.
+                    const multi = (js.photos?.length || 0) > 1;
+                    return (
+                      <div key={js.id} style={{
+                        display: 'flex', flexDirection: 'column',
+                        gridColumn: multi ? '1 / -1' : undefined,
+                        ...(multi ? {} : {
+                          background: B.bg, border: `1px solid ${B.line}`,
+                          borderRadius: 4, overflow: 'hidden',
+                        }),
+                      }}>
+                        <JobsiteGallery js={js}/>
+                        <div style={{ padding: multi ? '10px 2px 0' : '10px 14px', flex: 1 }}>
+                          <div className="serif" style={{
+                            color: B.text, fontWeight: 600, fontSize: 14,
+                          }}>{js.title}</div>
+                          <div style={{ color: B.dim, fontSize: 12, marginTop: 2 }}>
+                            {[js.structure_type, js.job_type].filter(Boolean).join(' · ') || js.kind}
+                          </div>
+                          <div style={{ color: B.faint, fontSize: 11, marginTop: 6 }}>
+                            {[js.location, js.year || js.duration].filter(Boolean).join(' · ')}
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             )}
