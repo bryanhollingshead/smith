@@ -190,10 +190,11 @@ function ConnectButton({ profile, onConnect }) {
 }
 
 // ── Jobsite photo gallery ──────────────────────────────────────────────
-// Renders every photo a jobsite has at equal size, stacked full-width — no
-// enlarged "primary" and no thumbnail strip. A single-photo jobsite is just
-// one full-width image (matching the rest of the cards); a multi-photo one
-// stacks several identical tiles.
+// Equal-sized photos, no enlarged "primary" and no thumbnail strip. One
+// photo → a single full-width tile (matching every other card). Several →
+// an equal 2-up grid (two per row, wrapping into rows), like the images in
+// the A Plus cards. Multi-photo jobsite cards span the full width (see
+// CompaniesSection) so the 2-up tiles land at full A-Plus-image size.
 //
 // Read order: prefer the multi-photo `photos[]` from the API; fall back to
 // the legacy single `photo_urls` (primary mirror) for un-migrated rows; and
@@ -210,7 +211,11 @@ function JobsiteGallery({ js }) {
   const src = (u) => u?.medium || u?.full || u?.thumb;
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+    <div style={{
+      display: 'grid',
+      gridTemplateColumns: gallery.length > 1 ? 'repeat(2, 1fr)' : '1fr',
+      gap: 2,
+    }}>
       {gallery.map(p => (
         <div key={p.id} style={{
           height: 132,
@@ -346,6 +351,9 @@ export function CompaniesSection({ profile, isMe, onEdit }) {
                     <div key={js.id} style={{
                       background: B.bg, border: `1px solid ${B.line}`, borderRadius: 4,
                       overflow: 'hidden', display: 'flex', flexDirection: 'column',
+                      // Multi-photo jobsites span the full row so their 2-up
+                      // photo grid renders at full A-Plus-image size.
+                      gridColumn: (js.photos?.length || 0) > 1 ? '1 / -1' : undefined,
                     }}>
                       <JobsiteGallery js={js}/>
                       <div style={{ padding: '10px 14px', flex: 1 }}>
