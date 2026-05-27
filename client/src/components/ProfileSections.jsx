@@ -189,6 +189,49 @@ function ConnectButton({ profile, onConnect }) {
   );
 }
 
+// ── Jobsite photo gallery ──────────────────────────────────────────────
+// Renders every photo a jobsite has, primary first. The primary spans the
+// full card width; any remaining photos sit below it in a thumbnail grid
+// ("all-photos grid" — everything visible, no click-to-enlarge).
+//
+// Read order: prefer the multi-photo `photos[]` from the API; fall back to
+// the legacy single `photo_urls` (primary mirror) for un-migrated rows; and
+// finally the procedural placeholder when a jobsite has no photo at all.
+function JobsiteGallery({ js }) {
+  const gallery = (js.photos && js.photos.length)
+    ? js.photos
+    : (js.photo_urls ? [{ id: 'primary', urls: js.photo_urls }] : []);
+
+  if (gallery.length === 0) {
+    return <Photo kind={js.photo_kind} label={js.title.toLowerCase()} height={132}/>;
+  }
+
+  const src = (u) => u?.medium || u?.full || u?.thumb;
+  const [primary, ...rest] = gallery;
+
+  return (
+    <div>
+      <div style={{
+        height: 132,
+        background: `center/cover url("${src(primary.urls)}") no-repeat`,
+      }}/>
+      {rest.length > 0 && (
+        <div style={{
+          display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)',
+          gap: 2, padding: 2, background: B.line,
+        }}>
+          {rest.map(p => (
+            <div key={p.id} style={{
+              paddingTop: '72%',
+              background: `center/cover url("${src(p.urls)}") no-repeat ${B.bg}`,
+            }}/>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Where I've worked ──────────────────────────────────────────────────
 export function CompaniesSection({ profile, isMe, onEdit }) {
   // Default open = the most recent (current) company; collapse the rest.
@@ -315,18 +358,7 @@ export function CompaniesSection({ profile, isMe, onEdit }) {
                       background: B.bg, border: `1px solid ${B.line}`, borderRadius: 4,
                       overflow: 'hidden', display: 'flex', flexDirection: 'column',
                     }}>
-                      {js.photo_urls ? (
-                        <div style={{
-                          height: 132,
-                          background: `center/cover url("${js.photo_urls.medium || js.photo_urls.full}") no-repeat`,
-                        }}/>
-                      ) : (
-                        <Photo
-                          kind={js.photo_kind}
-                          label={js.title.toLowerCase()}
-                          height={132}
-                        />
-                      )}
+                      <JobsiteGallery js={js}/>
                       <div style={{ padding: '10px 14px', flex: 1 }}>
                         <div className="serif" style={{
                           color: B.text, fontWeight: 600, fontSize: 14,

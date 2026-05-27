@@ -33,6 +33,12 @@ services:
       cd server && npm ci
       cd ../client && npm ci --include=dev && npm run build
 
+    # Apply DB migrations after build, before the new version takes traffic.
+    # migrate.js is idempotent (tracks applied files in _migrations), so this
+    # is a no-op when there's nothing new — and guarantees we never ship code
+    # that's ahead of the schema.
+    preDeployCommand: cd server && npm run migrate
+
     # Run the Express server. NODE_ENV=production makes it serve client/dist
     # alongside the API. PORT comes from Render automatically.
     startCommand: cd server && npm start
