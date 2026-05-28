@@ -72,6 +72,13 @@ services:
       - key: EMAIL_CODE_TTL_MIN
         value: "15"
 
+      # SOFT LAUNCH: email verification is OFF until the sending domain is
+      # live (codes can't be delivered yet). Accounts are created verified and
+      # the confirm-email gate is bypassed. Flip to "true" (and redeploy) once
+      # smith.app + Resend Path B are set up.
+      - key: REQUIRE_EMAIL_VERIFICATION
+        value: "false"
+
       # Storage driver + R2 credentials.
       # The four R2_* values you set manually in the Render dashboard —
       # `sync: false` tells Render "don't overwrite, this is a secret I

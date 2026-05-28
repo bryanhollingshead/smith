@@ -17,6 +17,18 @@ const router = Router();
 const CODE_TTL_MIN = parseInt(process.env.EMAIL_CODE_TTL_MIN || '15', 10);
 const RESET_TTL_MIN = parseInt(process.env.RESET_TOKEN_TTL_MIN || '30', 10);
 
+// Email verification can be switched off during soft launch (no verified
+// sending domain yet, so codes can't be delivered). When REQUIRE_EMAIL_-
+// VERIFICATION is falsey, signup creates already-verified accounts and the
+// auth responses report email_verified:true — which bypasses the client's
+// confirm-email gate for BOTH new signups and accounts already stuck on it,
+// with no DB migration or client rebuild. Default: verification required.
+// Flip back to "true" (and redeploy) once the domain + Resend are live.
+const REQUIRE_EMAIL_VERIFICATION =
+  !['false', '0', 'no', 'off'].includes(
+    (process.env.REQUIRE_EMAIL_VERIFICATION ?? 'true').trim().toLowerCase()
+  );
+
 // ─── POST /api/auth/signup ──────────────────────────────────────────────────
 // Body: { email, password, first_name?, last_name? }
 // Side effects: creates user, issues 6-digit code, sends verification email.
@@ -53,6 +65,24 @@ router.post('/signup', async (req, res) => {
   }
 
   const hash = await hashPassword(password);
+
+  // Soft-launch path: verification disabled → create the account already
+  // verified, no code emailed, and let the user straight in.
+  if (!REQUIRE_EMAIL_VERIFICATION) {
+    const { rows } = await q(
+      `INSERT INTO users (email, password_hash, first_name, last_name, onboarding_step, email_verified)
+         VALUES ($1,$2,$3,$4,1,TRUE)
+         RETURNING id, email`,
+      [email, hash, first_name, last_name]
+    );
+    const token = signToken({ sub: rows[0].id });
+    return res.status(201).json({
+      ok: true,
+      token,
+      user: { id: rows[0].id, email: rows[0].email, email_verified: true },
+    });
+  }
+
   const result = await tx(async (c) => {
     const { rows } = await c.query(
       `INSERT INTO users (email, password_hash, first_name, last_name, onboarding_step)
@@ -151,7 +181,7 @@ router.post('/signin', async (req, res) => {
     user: {
       id: rows[0].id,
       email: rows[0].email,
-      email_verified: rows[0].email_verified,
+      email_verified: REQUIRE_EMAIL_VERIFICATION ? rows[0].email_verified : true,
       onboarding_done: rows[0].onboarding_done,
     },
   });
@@ -222,7 +252,9 @@ router.get('/me', requireAuth, async (req, res) => {
        FROM users WHERE id = $1`,
     [req.userId]
   );
-  res.json({ user: rows[0] });
+  const u = rows[0];
+  if (u && !REQUIRE_EMAIL_VERIFICATION) u.email_verified = true;
+  res.json({ user: u });
 });
 
 // ─── DEV ONLY: GET /api/auth/dev/last-email ─────────────────────────────────
