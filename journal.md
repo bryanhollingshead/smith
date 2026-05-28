@@ -4,7 +4,7 @@ A durable record of decisions made, work shipped, and what's still open.
 Paste this at the start of a session so Claude is caught up in 30 seconds.
 Update it at the end of each session.
 
-**Last updated:** 2026-05-27 (profile polish + soft-launch auth — email verification OFF)
+**Last updated:** 2026-05-28 (avatars everywhere — connection/people surfaces show uploaded photos)
 **Live URL:** https://smith-h86n.onrender.com
 **Repo:** github.com/bryanhollingshead/smith
 **Sole dev:** Bryan Hollingshead (product background)
@@ -13,6 +13,13 @@ Update it at the end of each session.
 ---
 
 ## ✅ Done — recent wins (in roughly reverse chronological order)
+
+### Avatars everywhere — people/connection surfaces (2026-05-28)
+- **Root-cause bug:** `connections.js` had its **own** `parseUrls` that returned the raw storage *keys* (`users/1/avatar-thumb-….webp`) instead of building URLs via `publicUrl()`. So `<SmithAvatar>` got bad URLs → images 404'd → silently fell back to the initials monogram. Broke **every** connection-card avatar (Network page + the profile right-rail) since avatars were added — only surfaced when Bryan (first connection with a photo) showed "BH". (commit `5b7e0f8`)
+- **Generalized the fix** so it stops being whack-a-mole: added one shared **`keysToUrls(stored)`** helper in `storage.js` (the canonical key→URL converter — use it everywhere, never hand-roll per route). Wired avatars into the endpoints that only returned `avatar_tone` before — **search** + **notifications** (`misc.js`) and **messages** (thread list + conversation peer). Frontend now uses `SmithAvatar` (safe drop-in; falls back to initials when no photo) in: Feed "People you may know", profile right-rail, TopNav search, Alerts, Messages (3 spots). (commits `13b3bb2`, `d0e8c67`, `21ac14e`)
+- **Profile right-rail "In your network"** also became clickable → navigates to `/profile/:id` (was a non-interactive `<div>`). (commit `13b3bb2`)
+- **Lesson (again):** duplicated per-file serializers drift and rot — one shared helper. And `SmithAvatar` only shows a photo if the endpoint actually returns `avatar_urls`, so the frontend swap and the backend SELECT must land together.
+- Note: created 2 throwaway prod accounts while diagnosing (verification's off, so signup was the only way to read prod data without DB access). Cleanup: `DELETE FROM users WHERE email LIKE 'zz-verify-check-%' OR email LIKE 'zz-avatar-probe-%';`
 
 ### Profile polish + soft-launch auth (2026-05-27, after Jobsite v2)
 - **Jobsite photos = one uniform card per photo.** After several wrong takes (hero + thumbnail strip → 1-per-row full-width stack → 2-up spanning grid with bordered tiles), the right model is dead simple: each photo renders as the *same* card as a single-photo jobsite (image + title / structure·job / location beneath), all in one uniform grid. A jobsite with N photos → N identical cards (same text). `JobsiteGallery` component deleted; `CompaniesSection` now `flatMap`s jobsites → per-photo cards. **Lesson:** when the ask is "make X look like Y," render X with Y's *exact* structure — don't build a parallel variant. (commit `80c3c02`)
