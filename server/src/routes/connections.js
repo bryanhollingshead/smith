@@ -4,21 +4,30 @@
 import { Router } from 'express';
 import { q } from '../db.js';
 import { requireAuth } from '../middleware.js';
+import { publicUrl } from '../storage.js';
 
 const router = Router();
 
 // Order user ids so (a, b) is canonical for the row.
 const pair = (x, y) => (x < y ? [x, y] : [y, x]);
 
-// avatar_url and cover_url are JSON blobs of shape {thumb, medium, full} —
-// the same parseUrls helper used by profiles.js converts the stored DB
-// value (possibly a JSON string, possibly NULL) into a usable object for
-// the client. Matches the public contract used everywhere else in the API.
+// avatar_url and cover_url store a JSON map of storage KEYS, shape
+// {thumb, medium, full}. Convert each key into a client-usable URL via
+// publicUrl() — exactly like profiles.js. (Previously this returned the raw
+// keys, so connection-card images 404'd and silently fell back to the
+// initials monogram.)
 function parseUrls(value) {
   if (!value) return null;
-  if (typeof value === 'object') return value;
-  try { return JSON.parse(value); }
-  catch { return null; }
+  let parsed = value;
+  if (typeof value === 'string') {
+    try { parsed = JSON.parse(value); } catch { return null; }
+  }
+  if (typeof parsed !== 'object' || !parsed) return null;
+  const out = {};
+  for (const [size, key] of Object.entries(parsed)) {
+    if (typeof key === 'string') out[size] = publicUrl(key);
+  }
+  return out;
 }
 
 // Re-shape a raw DB row into the wire shape the client expects. Flips the
