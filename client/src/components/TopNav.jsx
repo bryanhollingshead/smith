@@ -9,7 +9,7 @@ import { useAuth } from '../lib/AuthContext.jsx';
 import { useMessages } from '../lib/MessagesContext.jsx';
 import { api } from '../lib/api.js';
 import { Icon } from './Icon.jsx';
-import { Avatar, SmithLogo } from './Primitives.jsx';
+import { SmithLogo } from './Primitives.jsx';
 import { SmithAvatar } from './SmithAvatar.jsx';
 
 export function TopNav({ active }) {
@@ -246,7 +246,7 @@ function SearchBox() {
                 <ResultRow
                   key={`u${u.id}`}
                   onClick={() => { setOpen(false); setQ(''); navigate(`/profile/${u.id}`); }}
-                  avatar={<Avatar size={32} tone={u.avatar_tone} initials={(u.first_name[0]||'') + (u.last_name[0]||'')}/>}
+                  avatar={<SmithAvatar urls={u.avatar_urls} size={32} tone={u.avatar_tone} initials={(u.first_name[0]||'') + (u.last_name[0]||'')}/>}
                   title={`${u.first_name} ${u.last_name}`}
                   sub={u.headline || u.location}
                 />

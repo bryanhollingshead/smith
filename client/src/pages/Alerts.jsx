@@ -4,7 +4,7 @@
 import React, { useEffect, useState } from 'react';
 import { B } from '../lib/theme.js';
 import { TopNav } from '../components/TopNav.jsx';
-import { Avatar } from '../components/Primitives.jsx';
+import { SmithAvatar } from '../components/SmithAvatar.jsx';
 import { Icon } from '../components/Icon.jsx';
 import { api } from '../lib/api.js';
 import { useRouter } from '../lib/router.jsx';
@@ -75,7 +75,8 @@ export function AlertsPage() {
                 <button onClick={() => navigate(`/profile/${n.actor.id}`)} style={{
                   background: 'transparent', border: 'none', padding: 0, cursor: 'pointer', borderRadius: '50%',
                 }}>
-                  <Avatar
+                  <SmithAvatar
+                    urls={n.actor.avatar_urls}
                     initials={n.actor.initials}
                     size={42}
                     tone={n.actor.avatar_tone || 'wood'}

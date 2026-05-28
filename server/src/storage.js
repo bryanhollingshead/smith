@@ -183,6 +183,26 @@ export function publicUrl(key) {
   return driver.publicUrl(key);
 }
 
+// Canonical converter for the stored avatar_url / cover_url / photo_url shape:
+// a JSON map of storage KEYS like { thumb, medium, full } (possibly a JSON
+// string, possibly NULL). Returns the same shape with each key resolved to a
+// client-usable URL via publicUrl, or null. Use this everywhere instead of
+// hand-rolling a parser per route (a stale per-file copy is exactly what made
+// connection-card avatars 404 once).
+export function keysToUrls(stored) {
+  if (!stored) return null;
+  let parsed = stored;
+  if (typeof stored === 'string') {
+    try { parsed = JSON.parse(stored); } catch { return null; }
+  }
+  if (typeof parsed !== 'object' || !parsed) return null;
+  const out = {};
+  for (const [size, key] of Object.entries(parsed)) {
+    if (typeof key === 'string') out[size] = publicUrl(key);
+  }
+  return out;
+}
+
 // Helper used by callers that store JSON shape like { thumb, medium, full }.
 // Iterates and deletes every variant. Tolerates missing keys.
 export async function deleteVariants(json) {

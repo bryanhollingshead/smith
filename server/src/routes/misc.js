@@ -6,6 +6,7 @@
 import { Router } from 'express';
 import { q } from '../db.js';
 import { requireAuth } from '../middleware.js';
+import { keysToUrls } from '../storage.js';
 
 const router = Router();
 
@@ -16,7 +17,7 @@ router.get('/search', requireAuth, async (req, res) => {
 
   const [users, companies, jobsites, trades] = await Promise.all([
     q(
-      `SELECT id, first_name, last_name, headline, avatar_tone, location
+      `SELECT id, first_name, last_name, headline, avatar_tone, avatar_url, location
          FROM users
         WHERE LOWER(first_name || ' ' || last_name) LIKE LOWER($1)
            OR LOWER(headline) LIKE LOWER($1)
@@ -42,7 +43,9 @@ router.get('/search', requireAuth, async (req, res) => {
   ]);
 
   res.json({
-    users: users.rows,
+    users: users.rows.map(({ avatar_url, ...u }) => ({
+      ...u, avatar_urls: keysToUrls(avatar_url),
+    })),
     companies: companies.rows,
     jobsites: jobsites.rows,
     trades: trades.rows,
@@ -53,7 +56,7 @@ router.get('/search', requireAuth, async (req, res) => {
 router.get('/notifications', requireAuth, async (req, res) => {
   const { rows } = await q(
     `SELECT n.id, n.kind, n.body, n.read_at, n.created_at,
-            u.id AS actor_id, u.first_name, u.last_name, u.avatar_tone
+            u.id AS actor_id, u.first_name, u.last_name, u.avatar_tone, u.avatar_url
        FROM notifications n LEFT JOIN users u ON u.id = n.actor_id
       WHERE n.user_id = $1
       ORDER BY n.created_at DESC LIMIT 50`,
@@ -76,6 +79,7 @@ router.get('/notifications', requireAuth, async (req, res) => {
         name: `${r.first_name} ${r.last_name}`.trim(),
         initials: ((r.first_name[0] || '') + (r.last_name[0] || '')).toUpperCase(),
         avatar_tone: r.avatar_tone,
+        avatar_urls: keysToUrls(r.avatar_url),
       } : null,
     })),
   });

@@ -19,6 +19,7 @@ import { Router } from 'express';
 import { q, tx } from '../db.js';
 import { requireAuth } from '../middleware.js';
 import { broadcastToUser } from './messages-ws.js';
+import { keysToUrls } from '../storage.js';
 
 const router = Router();
 
@@ -72,7 +73,7 @@ router.get('/threads', requireAuth, async (req, res) => {
      ),
      peers AS (
        -- The "other" participant in each thread (1:1 assumption).
-       SELECT mp.thread_id, u.id, u.first_name, u.last_name, u.avatar_tone, u.headline
+       SELECT mp.thread_id, u.id, u.first_name, u.last_name, u.avatar_tone, u.avatar_url, u.headline
          FROM my_threads mt
          JOIN message_participants mp ON mp.thread_id = mt.thread_id AND mp.user_id != $1
          JOIN users u ON u.id = mp.user_id
@@ -98,6 +99,7 @@ router.get('/threads', requireAuth, async (req, res) => {
             peers.first_name  AS peer_first_name,
             peers.last_name   AS peer_last_name,
             peers.avatar_tone AS peer_avatar_tone,
+            peers.avatar_url  AS peer_avatar_url,
             peers.headline    AS peer_headline,
             last_msgs.body       AS last_body,
             last_msgs.sender_id  AS last_sender_id,
@@ -121,6 +123,7 @@ router.get('/threads', requireAuth, async (req, res) => {
         first_name: r.peer_first_name,
         last_name: r.peer_last_name,
         avatar_tone: r.peer_avatar_tone,
+        avatar_urls: keysToUrls(r.peer_avatar_url),
         headline: r.peer_headline,
       },
       last_message: r.last_body ? {
@@ -144,13 +147,15 @@ router.get('/threads/:id', requireAuth, async (req, res) => {
 
   // Peer lookup.
   const { rows: peerRows } = await q(
-    `SELECT u.id, u.first_name, u.last_name, u.avatar_tone, u.headline
+    `SELECT u.id, u.first_name, u.last_name, u.avatar_tone, u.avatar_url, u.headline
        FROM message_participants mp
        JOIN users u ON u.id = mp.user_id
       WHERE mp.thread_id = $1 AND mp.user_id != $2`,
     [threadId, req.userId]
   );
-  const peer = peerRows[0] || null;
+  const peer = peerRows[0]
+    ? (({ avatar_url, ...p }) => ({ ...p, avatar_urls: keysToUrls(avatar_url) }))(peerRows[0])
+    : null;
 
   // Pagination: ?before=<message_id> returns messages older than that id.
   // Default returns the most recent 50 in chronological order (oldest first

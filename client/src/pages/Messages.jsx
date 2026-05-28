@@ -13,7 +13,7 @@
 import React, { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { B } from '../lib/theme.js';
 import { TopNav } from '../components/TopNav.jsx';
-import { Avatar } from '../components/Primitives.jsx';
+import { SmithAvatar } from '../components/SmithAvatar.jsx';
 import { Icon } from '../components/Icon.jsx';
 import { api } from '../lib/api.js';
 import { useRouter } from '../lib/router.jsx';
@@ -192,7 +192,8 @@ function ThreadRow({ t, active, onClick }) {
       borderTop: 'none', borderRight: 'none', borderBottom: `1px solid ${B.line}`,
       cursor: 'pointer', fontFamily: 'inherit',
     }}>
-      <Avatar
+      <SmithAvatar
+        urls={t.peer.avatar_urls}
         initials={initialsOf(t.peer.first_name, t.peer.last_name)}
         tone={t.peer.avatar_tone} size={40}
       />
@@ -349,7 +350,8 @@ function ThreadView({ threadId, me, onMessageSent, onRead }) {
         padding: '14px 20px', borderBottom: `1px solid ${B.line}`,
         display: 'flex', alignItems: 'center', gap: 12,
       }}>
-        <Avatar
+        <SmithAvatar
+          urls={thread.peer?.avatar_urls}
           initials={initialsOf(thread.peer?.first_name, thread.peer?.last_name)}
           tone={thread.peer?.avatar_tone} size={40}
         />
@@ -540,7 +542,7 @@ function NewMessagePicker({ onPick }) {
             onMouseEnter={e => e.currentTarget.style.background = B.bg}
             onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
           >
-            <Avatar initials={initialsOf(c.first_name, c.last_name)} tone={c.avatar_tone} size={36}/>
+            <SmithAvatar urls={c.avatar_urls} initials={initialsOf(c.first_name, c.last_name)} tone={c.avatar_tone} size={36}/>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div className="serif" style={{
                 color: B.text, fontWeight: 600, fontSize: 14, letterSpacing: '-0.01em',
