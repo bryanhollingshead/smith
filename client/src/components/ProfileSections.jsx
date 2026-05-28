@@ -6,7 +6,7 @@
 import React, { useState } from 'react';
 import { B } from '../lib/theme.js';
 import { Icon } from '../components/Icon.jsx';
-import { Avatar, Photo } from '../components/Primitives.jsx';
+import { Photo } from '../components/Primitives.jsx';
 import { SmithAvatar } from './SmithAvatar.jsx';
 import { api, auth } from '../lib/api.js';
 import { useRouter } from '../lib/router.jsx';
@@ -620,6 +620,7 @@ export function CredentialsSection({ profile, isMe, onEdit }) {
 
 // ── Right rail: skills + small network preview ────────────────────────
 export function ProfileRightRail({ profile, isMe, recentConnections, onEdit }) {
+  const { navigate } = useRouter();
   const [skills, setSkills] = useState(profile.skills);
   const [openSkill, setOpenSkill] = useState(null);
 
@@ -777,12 +778,21 @@ export function ProfileRightRail({ profile, isMe, recentConnections, onEdit }) {
             <span style={{ color: B.faint, fontSize: 12 }}>{profile.network_size}</span>
           </div>
           {recentConnections.slice(0, 4).map((c, i) => (
-            <div key={c.id} style={{
-              display: 'flex', alignItems: 'center', gap: 12,
-              padding: '12px 0',
-              borderTop: i === 0 ? 'none' : `1px solid ${B.line}`,
-            }}>
-              <Avatar
+            <button
+              key={c.id}
+              onClick={() => navigate(`/profile/${c.id}`)}
+              title={`View ${c.first_name} ${c.last_name}’s profile`}
+              style={{
+                width: '100%', display: 'flex', alignItems: 'center', gap: 12,
+                padding: '12px 0', background: 'transparent', border: 'none',
+                borderTop: i === 0 ? 'none' : `1px solid ${B.line}`,
+                textAlign: 'left', cursor: 'pointer',
+              }}
+              onMouseEnter={e => { e.currentTarget.style.opacity = '0.65'; }}
+              onMouseLeave={e => { e.currentTarget.style.opacity = '1'; }}
+            >
+              <SmithAvatar
+                urls={c.avatar_urls}
                 initials={(c.first_name[0] || '') + (c.last_name[0] || '')}
                 size={38}
                 tone={c.avatar_tone}
@@ -797,7 +807,7 @@ export function ProfileRightRail({ profile, isMe, recentConnections, onEdit }) {
                   whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
                 }}>{c.current_role || c.headline}</div>
               </div>
-            </div>
+            </button>
           ))}
         </section>
       )}
