@@ -315,7 +315,8 @@ function RightRail({ suggestions, onConnect, onView }) {
             <button onClick={() => onView(c.id)} style={{
               background: 'transparent', border: 'none', padding: 0, cursor: 'pointer', borderRadius: '50%',
             }}>
-              <Avatar
+              <SmithAvatar
+                urls={c.avatar_urls}
                 initials={(c.first_name[0] || '') + (c.last_name[0] || '')}
                 size={42}
                 tone={c.avatar_tone}
