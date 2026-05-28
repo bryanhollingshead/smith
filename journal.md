@@ -4,7 +4,7 @@ A durable record of decisions made, work shipped, and what's still open.
 Paste this at the start of a session so Claude is caught up in 30 seconds.
 Update it at the end of each session.
 
-**Last updated:** 2026-05-25 (end of landing page v2 session)
+**Last updated:** 2026-05-27 (profile polish + soft-launch auth — email verification OFF)
 **Live URL:** https://smith-h86n.onrender.com
 **Repo:** github.com/bryanhollingshead/smith
 **Sole dev:** Bryan Hollingshead (product background)
@@ -13,6 +13,23 @@ Update it at the end of each session.
 ---
 
 ## ✅ Done — recent wins (in roughly reverse chronological order)
+
+### Profile polish + soft-launch auth (2026-05-27, after Jobsite v2)
+- **Jobsite photos = one uniform card per photo.** After several wrong takes (hero + thumbnail strip → 1-per-row full-width stack → 2-up spanning grid with bordered tiles), the right model is dead simple: each photo renders as the *same* card as a single-photo jobsite (image + title / structure·job / location beneath), all in one uniform grid. A jobsite with N photos → N identical cards (same text). `JobsiteGallery` component deleted; `CompaniesSection` now `flatMap`s jobsites → per-photo cards. **Lesson:** when the ask is "make X look like Y," render X with Y's *exact* structure — don't build a parallel variant. (commit `80c3c02`)
+- **About bio now renders.** It was saved + returned by the API (`profiles.js`) but **no component displayed it** — the page jumped from header straight to Selected work. Added `AboutSection` (in `ProfileSections.jsx`) under the header: serif heading + bio with line breaks preserved; owner gets an empty-state prompt; hidden for visitors when empty. (commit `538e3c5`)
+- **Email verification switched OFF for soft launch.** New `REQUIRE_EMAIL_VERIFICATION` flag in `auth.js`, set to `"false"` in `render.yaml`. When off: signup creates already-verified accounts (no code emailed) and signin + `/auth/me` report `email_verified: true` — bypassing the confirm-email gate for **both new and already-stuck accounts**, with no DB edits or client rebuild. Flip to `"true"` + redeploy once smith.app + Resend Path B are live (signups during the window stay verified — their DB row is genuinely TRUE). (commit `668ea73`)
+  - Key fact: the verification gate is **entirely client-side** (`App.jsx:61` reads `user.email_verified`). `requireVerified` exists in `middleware.js` but is applied to **no routes**.
+
+### Jobsite v2 — structured fields + multi-photo galleries (2026-05-27)
+- Jobsite form reworked: **structure type** picker, **job type** picker (trade-aware — the user's primary trade sorts to the top, but everything stays visible), single **year** (replaces freeform "Duration"), and an auto-suggested **name** ("Holladay service upgrade" = location + job type, editable)
+- `client/src/lib/job-types.js` — `STRUCTURE_TYPES` + a 12-trade job-type vocabulary (starter list; refine after trade interviews). `orderedJobTypeCategories(primaryTrade)` does the sort
+- **Multi-photo galleries**: new `jobsite_photos` table (position-ordered, first = primary, reorderable). `jobsites.photo_url` kept as a *denormalized mirror of the primary* so legacy read paths (cards, Featured Work, edit thumbnails) work unchanged
+- **Migration 008** — additive only. `kind`/`duration` kept (NOT NULL loosened) so pre-v2 rows still render via fallback (`structure_type · job_type` || `kind`; `year` || `duration`)
+- Backend: gallery add/remove/reorder endpoints in `photos.js` (each resyncs the primary mirror); `profiles.js` returns `photos[]` per jobsite in position order
+- Frontend: `JobsiteForm` rebuilt as one form for add + edit; profile display renders the full gallery (primary full-width + thumbnail grid)
+- **Bug caught + fixed:** the profile display (`ProfileSections.jsx`) initially only read the single `photo_urls` mirror, so only the primary showed even when multiple uploaded. Fixed to iterate `photos[]`
+- Deploy: `render.yaml` now has `preDeployCommand: cd server && npm run migrate` — migrations auto-apply before cutover (was manual in Render Shell)
+- Shipped: commits `a7b4238` (schema + backend + form) and `ddfe26f` (gallery display + auto-migrate)
 
 ### Landing page v2 (2026-05-25)
 - Split marketing surface (`/`) from auth surface (`/auth/signin`)
@@ -59,6 +76,7 @@ Update it at the end of each session.
 ## 🔴 Blocking — fix soon
 
 ### R2 SECRET — 65 chars instead of 64
+**Status (2026-05-27):** likely resolved — multi-photo uploads succeeded in prod this session. Confirm the length is 64 (diagnostic below) and delete this entry if so.
 Photo uploads in prod throw `"signature does not match"` errors. Diagnostic:
 ```bash
 # in Render Shell:
@@ -68,11 +86,11 @@ echo "SECRET len: ${#R2_SECRET_ACCESS_KEY}"
 **Fix:** Render → smith → Environment → Edit → reveal R2_SECRET_ACCESS_KEY → delete value → re-paste cleanly from password manager (no trailing whitespace) → Save. Then verify length is 64. ~5 min.
 
 ### Real customers can't get verification emails
-Until Resend Path B is set up, signups from non-Bryan emails fail silently. Workaround:
+**Status (2026-05-27): MITIGATED — verification turned OFF for soft launch** via `REQUIRE_EMAIL_VERIFICATION=false` (render.yaml). Signups now work without a code; no per-user SQL needed. **Re-enable** (flip to `"true"` + redeploy) once Resend Path B / smith.app is live. See "Profile polish + soft-launch auth" above.
+Original issue: until Resend Path B is set up, codes only deliver to bryan.hollingshead@gmail.com, so other signups couldn't verify. Old per-user workaround (not needed while the flag is off):
 ```bash
-psql $DATABASE_URL -c "UPDATE users SET email_verified = TRUE WHERE email = 'their@email.com' RETURNING id, email, email_verified;"
+psql $DATABASE_URL -c "UPDATE users SET email_verified = TRUE WHERE email = 'their@email.com';"
 ```
-Run this in Render Shell for each new real customer. Not scalable, but handles small numbers until domain is verified.
 
 ---
 
@@ -179,6 +197,7 @@ Code slots are intentionally clean in Landing.jsx for easy swap.
 - **Render Shell access:** dashboard.render.com → smith → Shell tab
 - **Render Logs:** dashboard.render.com → smith → Logs (filter with search box, `mailer` / `ingest` / etc.)
 - **Render auto-deploys** on every push to main branch via Blueprint webhook
+- **DB migrations auto-apply on deploy** via `render.yaml` `preDeployCommand` (`npm run migrate`, idempotent) — no more manual `migrate` in Render Shell. Note: this runs against prod *before* cutover, so a bad migration blocks the deploy (safe)
 - **Confusion alert:** Cloudflare R2 dashboard (orange logo, R2 sidebar) vs Render dashboard (white/purple, services list) — easy to mix up when both are open in tabs
 
 ---
