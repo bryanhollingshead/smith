@@ -51,7 +51,7 @@ function shapeCard(row) {
 // placeholders since these columns weren't selected).
 const CARD_SQL = `
   SELECT u.id, u.first_name, u.last_name, u.headline, u.location, u.avatar_tone,
-         u.avatar_url, u.cover_url,
+         u.avatar_url, u.cover_url, u.is_smith_god,
          (SELECT c.name FROM work_history w JOIN companies c ON c.id = w.company_id
             WHERE w.user_id = u.id ORDER BY w.position ASC LIMIT 1) AS company_name,
          (SELECT w.role FROM work_history w
@@ -141,37 +141,65 @@ router.get('/suggestions', requireAuth, async (req, res) => {
     [req.userId, limit]
   );
 
+  // Compute the normal (real-people) suggestions into `normal`, capped at
+  // `limit`. The two-tier algo below is unchanged — we just don't return
+  // early, so the god bonus seats can be appended afterward.
+  let normal;
   if (friendsOfFriends.length >= limit) {
-    return res.json({ suggestions: friendsOfFriends.map(shapeCard) });
+    normal = friendsOfFriends.slice(0, limit);
+  } else {
+    // Top-up with same-location candidates (excluding existing).
+    const me = await q('SELECT location FROM users WHERE id = $1', [req.userId]);
+    const loc = me.rows[0]?.location;
+    const remaining = limit - friendsOfFriends.length;
+    const haveIds = new Set(friendsOfFriends.map(r => r.id));
+
+    const fillSql = `
+      ${CARD_SQL}
+         FROM users u
+        WHERE u.id <> $1
+          AND u.id NOT IN (
+            SELECT CASE WHEN user_a_id = $1 THEN user_b_id ELSE user_a_id END
+              FROM connections WHERE user_a_id = $1 OR user_b_id = $1
+          )
+          ${loc ? `AND u.location = $3` : ''}
+        ORDER BY u.first_name
+        LIMIT $2
+    `;
+    const params = loc ? [req.userId, remaining, loc] : [req.userId, remaining];
+    const fill = await q(fillSql, params);
+
+    normal = [
+      ...friendsOfFriends,
+      ...fill.rows.filter(r => !haveIds.has(r.id)).map(r => ({ ...r, mutual: 0 })),
+    ].slice(0, limit);
   }
 
-  // Top-up with same-location candidates (excluding existing).
-  const me = await q('SELECT location FROM users WHERE id = $1', [req.userId]);
-  const loc = me.rows[0]?.location;
-  const remaining = limit - friendsOfFriends.length;
-  const haveIds = new Set(friendsOfFriends.map(r => r.id));
-
-  const fillSql = `
-    ${CARD_SQL}
+  // God bonus seats: ALWAYS append up to 3 smith-god accounts that aren't
+  // already in the list and aren't already connected to the viewer. Additive
+  // (total may exceed `limit` by ≤3) so gods never crowd out real people.
+  // Shuffled (ORDER BY random()) so a new user doesn't see the same 3 twice.
+  const presentIds = normal.map(r => r.id);
+  const { rows: gods } = await q(
+    `${CARD_SQL}
        FROM users u
-      WHERE u.id <> $1
+      WHERE u.is_smith_god = TRUE
+        AND u.id <> $1
+        AND NOT (u.id = ANY($2::bigint[]))
         AND u.id NOT IN (
           SELECT CASE WHEN user_a_id = $1 THEN user_b_id ELSE user_a_id END
             FROM connections WHERE user_a_id = $1 OR user_b_id = $1
         )
-        ${loc ? `AND u.location = $3` : ''}
-      ORDER BY u.first_name
-      LIMIT $2
-  `;
-  const params = loc ? [req.userId, remaining, loc] : [req.userId, remaining];
-  const fill = await q(fillSql, params);
+      ORDER BY random()
+      LIMIT 3`,
+    [req.userId, presentIds]
+  );
 
-  const merged = [
-    ...friendsOfFriends,
-    ...fill.rows.filter(r => !haveIds.has(r.id)).map(r => ({ ...r, mutual: 0 })),
-  ].slice(0, limit);
-
-  res.json({ suggestions: merged.map(shapeCard) });
+  const suggestions = [
+    ...normal.map(shapeCard),
+    ...gods.map(r => ({ ...shapeCard(r), mutual: 0 })),
+  ];
+  res.json({ suggestions });
 });
 
 // POST /api/connections/request  Body: { target_id }
@@ -180,17 +208,20 @@ router.post('/request', requireAuth, async (req, res) => {
   if (!Number.isFinite(target)) return res.status(400).json({ error: 'target_id required' });
   if (target === req.userId) return res.status(400).json({ error: 'Cannot connect with yourself' });
 
-  const exists = await q('SELECT 1 FROM users WHERE id = $1', [target]);
+  const exists = await q('SELECT is_smith_god FROM users WHERE id = $1', [target]);
   if (!exists.rows.length) return res.status(404).json({ error: 'User not found' });
+  const isGod = !!exists.rows[0].is_smith_god;
 
   const [a, b] = pair(req.userId, target);
+  // Smith gods auto-accept: no human reviews the request, so it goes straight
+  // to 'accepted' (with responded_at set). Everyone else stays 'pending'.
   // ON CONFLICT lets us flip a previously-blocked or pending row sensibly.
   const { rows } = await q(
-    `INSERT INTO connections (user_a_id, user_b_id, status, requested_by)
-       VALUES ($1, $2, 'pending', $3)
+    `INSERT INTO connections (user_a_id, user_b_id, status, requested_by, responded_at)
+       VALUES ($1, $2, $4, $3, ${isGod ? 'NOW()' : 'NULL'})
        ON CONFLICT (user_a_id, user_b_id) DO NOTHING
        RETURNING id, status`,
-    [a, b, req.userId]
+    [a, b, req.userId, isGod ? 'accepted' : 'pending']
   );
   if (!rows.length) {
     const cur = await q(
@@ -200,12 +231,23 @@ router.post('/request', requireAuth, async (req, res) => {
     return res.json({ ok: true, status: cur.rows[0]?.status, already: true });
   }
 
-  // Notify target.
-  await q(
-    `INSERT INTO notifications (user_id, kind, actor_id, subject_id, body)
-       VALUES ($1, 'connection_request', $2, $3, 'sent you a connection request')`,
-    [target, req.userId, rows[0].id]
-  );
+  if (isGod) {
+    // Skip the request notification (the god isn't reviewing anything). Send
+    // the connecting user a welcome confirmation instead, as if the god
+    // accepted — actor is the god so it renders like a normal acceptance.
+    await q(
+      `INSERT INTO notifications (user_id, kind, actor_id, subject_id, body)
+         VALUES ($1, 'connection_accepted', $2, $3, 'welcomed you to their network')`,
+      [req.userId, target, rows[0].id]
+    );
+  } else {
+    // Notify the target of the pending request.
+    await q(
+      `INSERT INTO notifications (user_id, kind, actor_id, subject_id, body)
+         VALUES ($1, 'connection_request', $2, $3, 'sent you a connection request')`,
+      [target, req.userId, rows[0].id]
+    );
+  }
 
   res.status(201).json({ ok: true, connection: rows[0] });
 });

@@ -236,6 +236,16 @@ function ConnectionCard({ tab, card, onView, onChange }) {
               <> · {card.mutual} mutual</>
             )}
           </div>
+          {/* Smith god marker — subtle groundwork. Gods are visible but quiet;
+              richer treatment (separate section, "Receive guidance", etc.) is
+              a later phase. */}
+          {card.is_smith_god && (
+            <div style={{
+              color: B.accent, fontSize: 11, marginTop: 4, fontStyle: 'italic',
+            }}>
+              ⚒ Smith original
+            </div>
+          )}
         </div>
 
         <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>

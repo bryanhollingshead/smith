@@ -4,7 +4,7 @@ A durable record of decisions made, work shipped, and what's still open.
 Paste this at the start of a session so Claude is caught up in 30 seconds.
 Update it at the end of each session.
 
-**Last updated:** 2026-05-28 (avatars everywhere — connection/people surfaces show uploaded photos)
+**Last updated:** 2026-05-28 (Smith God accounts — network suggestions + auto-accept)
 **Live URL:** https://smith-h86n.onrender.com
 **Repo:** github.com/bryanhollingshead/smith
 **Sole dev:** Bryan Hollingshead (product background)
@@ -13,6 +13,20 @@ Update it at the end of each session.
 ---
 
 ## ✅ Done — recent wins (in roughly reverse chronological order)
+
+### Smith God accounts — phase 1 (2026-05-28)
+A handful of existing accounts representing smith deities (Hephaestus, Vulcan, Ptah, Ilmarinen, Wayland, etc.) now surface as network "Suggestions" for new/under-connected users — a branding/onboarding device — without distorting the real friends-of-friends logic.
+- **Migration 009** — `users.is_smith_god BOOLEAN NOT NULL DEFAULT FALSE` + partial index `WHERE is_smith_god`. Column only; which accounts are gods is set by hand.
+- **Flag accounts** (run in Render Shell with the real email list):
+  ```bash
+  psql $DATABASE_URL -c "UPDATE users SET is_smith_god = TRUE WHERE email IN ('hephaestus@smith.app', ...);"
+  psql $DATABASE_URL -c "SELECT id, first_name, last_name, email, is_smith_god FROM users WHERE is_smith_god;"  # verify
+  ```
+- **`GET /connections/suggestions`** — the 2-tier algo (FoF → same-location) is **unchanged**; afterward it **additively** appends up to 3 random gods (`ORDER BY random()`) not already in the list or connected. Total can exceed `limit` by ≤3 so gods never crowd out real people. `is_smith_god` added to the shared `CARD_SQL`, so every card carries the flag (gods `true`).
+- **Auto-accept** (`POST /connections/request`): if the target `is_smith_god`, the connection inserts as `'accepted'` immediately (no pending), the request notification is skipped, and the connector gets a `connection_accepted` notification ("welcomed you to their network", actor = the god).
+- **Frontend** (`Network.jsx`): suggestion cards show a subtle `⚒ Smith original` italic line under the location when `is_smith_god`. Connect button stays "Connect" for now.
+- Verified locally end-to-end: god appears + flagged in suggestions, connect → accepted, viewer gets welcome, god gets no request.
+- **Out of scope (later phases):** LLM messaging in god voices · @-invocation in posts · special UI (separate section / card style) · pantheon page · "Receive guidance" copy.
 
 ### Avatars everywhere — people/connection surfaces (2026-05-28)
 - **Root-cause bug:** `connections.js` had its **own** `parseUrls` that returned the raw storage *keys* (`users/1/avatar-thumb-….webp`) instead of building URLs via `publicUrl()`. So `<SmithAvatar>` got bad URLs → images 404'd → silently fell back to the initials monogram. Broke **every** connection-card avatar (Network page + the profile right-rail) since avatars were added — only surfaced when Bryan (first connection with a photo) showed "BH". (commit `5b7e0f8`)
@@ -146,6 +160,13 @@ Code slots are intentionally clean in Landing.jsx for easy swap.
 ---
 
 ## 💡 Future / ideas (no commitment yet)
+
+### Future / when ready: SLC algo improvements
+Connection-suggestion ranking boosts we discussed but deferred (the current algo is only friends-of-friends by mutual count → same-location fallback):
+- **Company-overlap boost** — rank up people who've worked at a company you've also worked at (shared `work_history.company_id`), even if you never overlapped in time. Strong signal in trades (same GC/sub crews).
+- **Same-trade boost** — rank up people who share one of your trades (especially your primary), scoped to region. Helps a new electrician find other electricians nearby.
+- **Blend, don't replace** — combine into a weighted score (mutual count + company overlap + trade match + proximity) rather than strict tiers, so a same-trade local with 0 mutuals can still surface.
+- Keep the smith-god additive bonus seats on top regardless of ranking.
 
 ### Perplexity-style news synthesis
 - Current state: raw articles from 19 RSS feeds, basic tag inference
