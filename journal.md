@@ -4,7 +4,7 @@ A durable record of decisions made, work shipped, and what's still open.
 Paste this at the start of a session so Claude is caught up in 30 seconds.
 Update it at the end of each session.
 
-**Last updated:** 2026-05-29 (Jobs module plan + Hire Me flow + Trusted Auto-Send logged)
+**Last updated:** 2026-05-29 (Jobs module phase 1 — resume import + completeness shipped)
 **Live URL:** https://smith-h86n.onrender.com
 **Repo:** github.com/bryanhollingshead/smith
 **Sole dev:** Bryan Hollingshead (product background)
@@ -13,6 +13,81 @@ Update it at the end of each session.
 ---
 
 ## ✅ Done — recent wins (in roughly reverse chronological order)
+
+### Jobs module — phase 1 shipped: resume import + completeness (2026-05-29)
+First of the 5 planned phases (see [[Jobs module (profile-first build) — planned]]).
+**No migration needed — writes into existing tables.** Plan locked-in 8 decisions:
+SLC for Adzuna (parameterized via `job_sources.config`), Haiku 4.5 for resume parse
++ Sonnet 4.6 for assisted-apply drafting (env-gated `ASSISTED_APPLY_LLM`),
+`/profile/:slug` for public URL (slug always has letters → disambiguates from
+numeric `/profile/:id`), magic-link for Hire Me reply, `is_public` default FALSE,
+`auto_send_templates` deferred to phase 6, 5 PRs.
+
+**Backend (new files):**
+- `server/src/llm.js` — Anthropic SDK wrapper. `extractResumeFromText()` uses Haiku
+  4.5 + `output_config.format` (json_schema) for guaranteed-shape structured output,
+  with the long system prompt under `cache_control: ephemeral` for prefix caching.
+  `draftApplicationMessage()` shell + `assistedApplyEnabled()` flag stub for phase 4.
+- `server/src/resume-parse.js` — PDF → text (`pdf-parse@1.1.1`, pinned because 2.x
+  needs Node 22+ and Render runs 20) → `extractResumeFromText()`. Rejects scanned
+  PDFs (<80 chars of selectable text) so the model isn't hallucinating from nothing.
+- Deps: `@anthropic-ai/sdk` + `pdf-parse@1.1.1`.
+
+**Routes (added to `profiles.js`):**
+- `POST /api/profiles/me/resume/parse` — multipart PDF upload, returns parsed JSON
+  pre-fill, does NOT write.
+- `POST /api/profiles/me/interview/step` — incremental save per section
+  (`header`/`trades`/`skills`/`licenses`/`work_history`). Companies auto find-or-create
+  by name (case-insensitive) so re-runs don't duplicate.
+- `GET  /api/profiles/me/resume` — server-rendered printable HTML (browser
+  print→PDF). Real PDF generation (puppeteer/pdfkit) deferred — HTML covers the case.
+- `GET  /api/profiles/me/completeness` — outcome-linked unlocks: "Show up in
+  tradesman search", "Verified badge", "Generate your Smith resume", "Hire Me page
+  looks complete". Distinct from existing `/me/strength` (vanity %) — coexist for now.
+
+**Frontend:**
+- `components/ResumeImportWizard.jsx` — modal with two stages (upload → review).
+  Review shows all parsed sections with per-section enable/disable + inline edits;
+  one "Save to profile" click POSTs each enabled section via `interview/step`.
+- `components/ProfileSections.jsx` — added `ProfileCompletenessCard` (outcome
+  unlocks, hides when fully complete).
+- `pages/EditProfile.jsx` — "Have a resume? Drop it in." banner above the tabs
+  triggers the wizard.
+- `pages/Profile.jsx` — wires `ProfileCompletenessCard` next to existing
+  `ProfileStrengthBanner` (don't break what works; retire the old card later).
+
+**Decisions baked into phase 1:**
+- Anthropic SDK with `output_config.format: {type:"json_schema", schema}` is the
+  canonical structured-output path (`output_format` is deprecated). Manual
+  `JSON.parse(response.content[0].text)` because we're plain JS, not TS+Zod.
+- Schema mirrors Smith's DB exactly so the interview-step writes are trivial maps.
+- Cost guardrail: `extractResumeFromText` caps input at 30K chars (≈7-8K tokens) so
+  a runaway PDF can't flood the model. Per-resume cost on Haiku 4.5 is sub-penny.
+- Resume HTML render uses `loadProfile()` (same shape as the API) so it stays in
+  sync as profile data evolves. No separate template/data model.
+
+**Verified end-to-end (server, curl as Marcus dev account):**
+- Auth gate works (all 4 endpoints 401 without token).
+- `/me/completeness` returns 4 unlocks, all `done:true` for Marcus's fully-populated
+  seed account — proves the gating logic.
+- `/me/resume` renders Marcus's name, headline, about, trades, work history.
+- `/me/resume/parse` returns clean 400 on no-file, 400 on bad PDF (pdf-parse fails).
+- Server boots cleanly without `ANTHROPIC_API_KEY` set; only the parse endpoint
+  errors with 503 ("not configured") when the key is missing.
+- Client `vite build` clean.
+
+**NOT verified (be honest):** the resume wizard modal UX — file picker → parse →
+review → save — was not click-through tested in a browser. The component renders;
+the API calls are wired correctly per the contract; the actual happy-path flow with
+a real PDF + a real `ANTHROPIC_API_KEY` is the next thing to confirm in prod or
+local with a key set. Frontend builds with no warnings.
+
+**To enable in prod:** set `ANTHROPIC_API_KEY` in Render env. Optional:
+`ASSISTED_APPLY_LLM=false` to disable the (not-yet-implemented) phase-4 path
+preemptively — defaults to enabled.
+
+**Phase 2 next:** Adzuna ingestion via JobSource driver → `job_sources` + `jobs`
+tables (migration 010), background scheduler in `index.js` mirroring news.
 
 ### Jobs module (profile-first build) — planned (2026-05-29)
 Single-player utility before the network exists. Jobs are the forcing function that builds

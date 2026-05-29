@@ -17,6 +17,7 @@ import { suggestSkills } from '../lib/trade-skills.js';
 import { STRUCTURE_TYPES, orderedJobTypeCategories, suggestJobsiteName } from '../lib/job-types.js';
 import { PhotoUpload } from '../components/PhotoUpload.jsx';
 import { SmithAvatar } from '../components/SmithAvatar.jsx';
+import { ResumeImportWizard } from '../components/ResumeImportWizard.jsx';
 
 const TONES = ['wood', 'rust', 'steel', 'brick', 'sage', 'sand', 'slate', 'cream'];
 const COVER_KINDS = ['frame', 'wood', 'concrete', 'roof', 'brick', 'crew', 'workshop', 'kitchen', 'tile', 'blueprint', 'sky', 'steel'];
@@ -56,6 +57,7 @@ export function EditProfilePage() {
   }, [focus]);
 
   const [profile, setProfile] = useState(null);
+  const [wizardOpen, setWizardOpen] = useState(false);
 
   const load = useCallback(async () => {
     const { profile } = await api.get('/profiles/me');
@@ -109,6 +111,34 @@ export function EditProfilePage() {
             cursor: 'pointer',
           }}>Done</button>
         </div>
+
+        {/* Resume import CTA — fast path for users who already have a resume. */}
+        <div style={{
+          background: B.surface, border: `1px solid ${B.line}`, borderRadius: 6,
+          padding: '14px 18px', display: 'flex', alignItems: 'center',
+          justifyContent: 'space-between', gap: 12, marginBottom: 18,
+        }}>
+          <div>
+            <div style={{ fontSize: 14, fontWeight: 600, color: B.text }}>
+              Have a resume? Drop it in.
+            </div>
+            <div style={{ fontSize: 12, color: B.dim, marginTop: 2 }}>
+              PDF upload pre-fills your trades, work history, credentials, and skills. Review before saving.
+            </div>
+          </div>
+          <button onClick={() => setWizardOpen(true)} style={{
+            background: B.text, color: B.surface, border: 'none',
+            padding: '9px 18px', borderRadius: 100, fontSize: 13, fontWeight: 600,
+            cursor: 'pointer', whiteSpace: 'nowrap',
+          }}>Import resume</button>
+        </div>
+
+        {wizardOpen && (
+          <ResumeImportWizard
+            onClose={() => setWizardOpen(false)}
+            onComplete={handleSaved}
+          />
+        )}
 
         <div style={{
           display: 'flex', gap: 28, marginTop: 18, marginBottom: 24,

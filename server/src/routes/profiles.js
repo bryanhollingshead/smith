@@ -15,12 +15,21 @@
 // prefers uploaded photos and falls back to placeholder photo_kind / logo_tone.
 
 import { Router } from 'express';
+import multer from 'multer';
 import { q, tx } from '../db.js';
 import { requireAuth } from '../middleware.js';
 import { deleteDocFile } from './credential-docs.js';
 import { publicUrl } from '../storage.js';
+import { parseResumeBuffer } from '../resume-parse.js';
 
 const router = Router();
+
+// PDF resume upload — kept separate from photos.js's multer instance so the
+// limits (10 MB for a PDF) and field name ("file") stay local to this route.
+const resumeUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024, files: 1 },
+});
 
 // avatar_url, cover_url, jobsite photo_url, company logo_url are all stored
 // as JSON strings like { "thumb": "<key>", ... }. parseUrls() turns that
@@ -492,6 +501,305 @@ router.get('/:id/skills/:sid/endorsers', requireAuth, async (req, res) => {
     })),
   });
 });
+
+// ════════════════════════════════════════════════════════════════════════
+// RESUME / PROFILE GENERATION (Jobs module — phase 1)
+// ════════════════════════════════════════════════════════════════════════
+//
+// Three surfaces:
+//   1. POST /me/resume/parse     — upload a PDF, get a pre-fill (no writes)
+//   2. POST /me/interview/step   — incremental save per section
+//   3. GET  /me/resume           — render the profile as a printable resume
+//   4. GET  /me/completeness     — outcome-linked unlocks (NOT a vanity %)
+//
+// Writes go into the existing work_history / companies / user_trades / skills
+// / licenses / users tables — no migration needed for phase 1.
+
+// 1) Upload a resume PDF → return parsed pre-fill (does not persist).
+router.post('/me/resume/parse', requireAuth, (req, res, next) => {
+  resumeUpload.single('file')(req, res, (err) => {
+    if (err) {
+      const msg = err.code === 'LIMIT_FILE_SIZE'
+        ? 'PDF too large (10 MB max).'
+        : (err.message || 'Upload failed.');
+      return res.status(400).json({ error: msg });
+    }
+    if (!req.file) return res.status(400).json({ error: 'No file uploaded.' });
+    next();
+  });
+}, async (req, res) => {
+  try {
+    const parsed = await parseResumeBuffer(req.file.buffer);
+    res.json({ prefill: parsed });
+  } catch (e) {
+    const status = e.status || 500;
+    const msg = e.publicMessage || e.message || 'Could not parse resume';
+    console.error('[resume/parse]', e);
+    res.status(status).json({ error: msg });
+  }
+});
+
+// 2) Interview step — accept one section at a time so the wizard can save as
+// the user advances. Body: { step: 'header'|'trades'|'skills'|'licenses'|'work_history', data: {...} }
+// Each step is idempotent for re-runs (trades/skills replace; licenses +
+// work_history append, deduping companies by name).
+router.post('/me/interview/step', requireAuth, async (req, res) => {
+  const { step, data } = req.body || {};
+  if (!step || typeof data !== 'object' || data === null) {
+    return res.status(400).json({ error: 'step and data required' });
+  }
+
+  try {
+    switch (step) {
+      case 'header': {
+        const allowed = ['first_name', 'last_name', 'headline', 'about', 'location', 'years_experience'];
+        const updates = {};
+        for (const k of allowed) if (k in data) updates[k] = data[k];
+        if (Object.keys(updates).length === 0) break;
+        const sets = Object.keys(updates).map((k, i) => `${k} = $${i + 2}`);
+        const vals = [req.userId, ...Object.values(updates)];
+        await q(`UPDATE users SET ${sets.join(', ')} WHERE id = $1`, vals);
+        break;
+      }
+
+      case 'trades': {
+        // Same shape as POST /me/trades: replace the user's trade list atomically.
+        const list = Array.isArray(data.trades) ? data.trades.slice(0, 6) : [];
+        await tx(async (c) => {
+          await c.query('DELETE FROM user_trades WHERE user_id = $1', [req.userId]);
+          for (let i = 0; i < list.length; i++) {
+            const { name, years = 0 } = list[i] || {};
+            if (!name) continue;
+            let { rows } = await c.query('SELECT id FROM trades WHERE LOWER(name) = LOWER($1)', [name]);
+            let tradeId = rows[0]?.id;
+            if (!tradeId) {
+              const ins = await c.query(
+                'INSERT INTO trades (name, icon) VALUES ($1, $2) RETURNING id',
+                [name, 'tool']
+              );
+              tradeId = ins.rows[0].id;
+            }
+            await c.query(
+              `INSERT INTO user_trades (user_id, trade_id, years, position) VALUES ($1,$2,$3,$4)`,
+              [req.userId, tradeId, Math.max(0, parseInt(years, 10) || 0), i]
+            );
+          }
+        });
+        break;
+      }
+
+      case 'skills': {
+        const list = Array.isArray(data.skills) ? data.skills : [];
+        await tx(async (c) => {
+          await c.query('DELETE FROM skills WHERE user_id = $1', [req.userId]);
+          for (let i = 0; i < list.length; i++) {
+            const { name, level = 3 } = list[i] || {};
+            if (!name) continue;
+            const lv = Math.max(1, Math.min(5, parseInt(level, 10) || 3));
+            await c.query(
+              `INSERT INTO skills (user_id, name, level, position) VALUES ($1,$2,$3,$4)`,
+              [req.userId, name, lv, i]
+            );
+          }
+        });
+        break;
+      }
+
+      case 'licenses': {
+        // Append (don't replace) — the user may have manually added licenses
+        // already. Each license must have name/number/expiration; we ignore
+        // malformed rows rather than rejecting the whole batch.
+        const list = Array.isArray(data.licenses) ? data.licenses : [];
+        await tx(async (c) => {
+          for (const lic of list) {
+            const { name, number, expiration } = lic || {};
+            if (!name || !number || !expiration) continue;
+            if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(expiration)) continue;
+            const { rows: pos } = await c.query(
+              `SELECT COALESCE(MAX(position), -1) + 1 AS next FROM licenses WHERE user_id = $1`,
+              [req.userId]
+            );
+            await c.query(
+              `INSERT INTO licenses (user_id, name, number, expiration, verified, position)
+                 VALUES ($1,$2,$3,$4,FALSE,$5)`,
+              [req.userId, name, number, expiration, pos[0].next]
+            );
+          }
+        });
+        break;
+      }
+
+      case 'work_history': {
+        // Append work_history rows. Each entry needs a company name; we
+        // find-or-create the company (case-insensitive) so the same employer
+        // referenced in two parses doesn't duplicate.
+        const list = Array.isArray(data.work_history) ? data.work_history : [];
+        await tx(async (c) => {
+          for (let i = 0; i < list.length; i++) {
+            const row = list[i] || {};
+            const { company_name, role, from_year, to_year = '', is_current = false } = row;
+            if (!company_name || !role || !from_year) continue;
+
+            let { rows } = await c.query(
+              `SELECT id FROM companies WHERE LOWER(name) = LOWER($1) LIMIT 1`,
+              [company_name]
+            );
+            let companyId = rows[0]?.id;
+            if (!companyId) {
+              const ins = await c.query(
+                `INSERT INTO companies (name, type, created_by) VALUES ($1, $2, $3) RETURNING id`,
+                [company_name, 'General Contractor', req.userId]
+              );
+              companyId = ins.rows[0].id;
+            }
+
+            const { rows: pos } = await c.query(
+              `SELECT COALESCE(MAX(position), -1) + 1 AS next FROM work_history WHERE user_id = $1`,
+              [req.userId]
+            );
+            await c.query(
+              `INSERT INTO work_history (user_id, company_id, role, from_year, to_year, is_current, position)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+              [req.userId, companyId, role, String(from_year), is_current ? null : (to_year || null), !!is_current, pos[0].next]
+            );
+          }
+        });
+        break;
+      }
+
+      default:
+        return res.status(400).json({ error: `Unknown step: ${step}` });
+    }
+
+    res.json({ ok: true });
+  } catch (e) {
+    console.error('[interview/step]', e);
+    res.status(500).json({ error: e.message || 'Could not save step' });
+  }
+});
+
+// 3) Resume render (HTML). Browser print → PDF. Defer real server-side PDF
+// generation (puppeteer/pdfkit) to a later phase; HTML covers the case.
+router.get('/me/resume', requireAuth, async (req, res) => {
+  const profile = await loadProfile(req.userId, req.userId);
+  if (!profile) return res.status(404).send('Not found');
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.send(renderResumeHtml(profile));
+});
+
+// 4) Completeness — outcome-linked unlocks. Distinct from /me/strength's
+// vanity %: each item names a real product feature the user gets when done.
+router.get('/me/completeness', requireAuth, async (req, res) => {
+  const { rows } = await q(
+    `SELECT
+       (SELECT COUNT(*) FROM user_trades WHERE user_id = $1)::int AS trades,
+       (SELECT COUNT(*) FROM licenses WHERE user_id = $1)::int AS licenses,
+       (SELECT COUNT(*) FROM licenses WHERE user_id = $1 AND doc_url IS NOT NULL)::int AS licenses_with_doc,
+       (SELECT COUNT(*) FROM work_history WHERE user_id = $1)::int AS work_history,
+       (SELECT COUNT(*) FROM skills WHERE user_id = $1)::int AS skills,
+       (SELECT COUNT(*) FROM jobsites js
+          JOIN work_history wh ON wh.id = js.work_history_id WHERE wh.user_id = $1)::int AS jobsites`,
+    [req.userId]
+  );
+  const c = rows[0];
+  const { rows: u } = await q(
+    `SELECT headline, about, location FROM users WHERE id = $1`,
+    [req.userId]
+  );
+  const me = u[0] || {};
+  const hasHeadline = !!(me.headline && me.headline.trim());
+  const hasAbout    = !!(me.about && me.about.trim());
+  const hasLocation = !!(me.location && me.location.trim());
+
+  const unlocks = [
+    {
+      id: 'searchable',
+      title: 'Show up in tradesman search',
+      need: 'Headline + at least one trade',
+      done: hasHeadline && c.trades >= 1,
+      cta: hasHeadline ? 'Add your trade' : 'Add your headline',
+    },
+    {
+      id: 'verified_badge',
+      title: 'Verified badge on your profile',
+      need: 'Attach proof to a credential',
+      done: c.licenses_with_doc >= 1,
+      cta: c.licenses >= 1 ? 'Upload a license doc' : 'Add a credential',
+    },
+    {
+      id: 'resume_ready',
+      title: 'Generate your Smith resume',
+      need: 'Headline, about, location, ≥1 trade, ≥1 role',
+      done: hasHeadline && hasAbout && hasLocation && c.trades >= 1 && c.work_history >= 1,
+      cta: !hasAbout ? 'Write your about section' :
+           !hasLocation ? 'Add your location' :
+           c.work_history < 1 ? 'Add a role' : 'Review your resume',
+    },
+    {
+      id: 'hire_me_ready',
+      title: 'Your Hire Me page looks complete',
+      need: '2+ projects with photos, headline + about',
+      done: hasHeadline && hasAbout && c.jobsites >= 2,
+      cta: c.jobsites < 2 ? `Add ${2 - c.jobsites} more project${c.jobsites === 1 ? '' : 's'}` : 'Polish your profile',
+    },
+  ];
+
+  res.json({ unlocks });
+});
+
+// ── Resume HTML renderer (server-side template) ──────────────────────────
+// Plain HTML + inline styles so it prints cleanly without external assets.
+// Not pretty-pixel-perfect — it's a working resume the user can browser-print.
+function renderResumeHtml(p) {
+  const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => (
+    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+  ));
+  const trades = (p.trades || []).map(t => esc(t.name) + (t.years ? ` (${t.years}y)` : '')).join(' · ');
+  const skills = (p.skills || []).map(s => esc(s.name)).join(' · ');
+  const work = (p.work_history || []).map(w => {
+    const jobsites = (w.jobsites || []).map(j => `<li>${esc(j.title)}${j.location ? ` — ${esc(j.location)}` : ''}${j.year ? ` (${esc(j.year)})` : ''}</li>`).join('');
+    return `
+      <div class="role">
+        <div class="role-head">
+          <strong>${esc(w.role)}</strong> — ${esc(w.company_name)}
+          <span class="years">${esc(w.from_year)}${w.is_current ? '–Present' : (w.to_year ? '–' + esc(w.to_year) : '')}</span>
+        </div>
+        ${jobsites ? `<ul class="jobsites">${jobsites}</ul>` : ''}
+      </div>`;
+  }).join('');
+  const licenses = (p.licenses || []).map(l => `<li>${esc(l.name)} — #${esc(l.number)} (exp. ${esc(l.expiration)})${l.verified ? ' ✓' : ''}</li>`).join('');
+
+  return `<!doctype html>
+<html><head><meta charset="utf-8"><title>${esc(p.name)} — Smith resume</title>
+<style>
+  @page { margin: 0.6in; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; color: #111; max-width: 820px; margin: 24px auto; padding: 0 24px; line-height: 1.45; }
+  h1 { font-size: 26px; margin: 0 0 4px; }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.08em; color: #555; border-bottom: 1px solid #ddd; padding-bottom: 4px; margin: 22px 0 10px; }
+  .meta { color: #555; font-size: 13px; margin-bottom: 8px; }
+  .headline { font-style: italic; color: #333; margin-bottom: 18px; }
+  .about { font-size: 14px; white-space: pre-wrap; }
+  .role { margin: 0 0 12px; }
+  .role-head { font-size: 14px; }
+  .role-head .years { color: #555; margin-left: 6px; font-size: 13px; }
+  .jobsites { margin: 4px 0 0 18px; padding: 0; color: #333; font-size: 13px; }
+  ul { margin: 4px 0 0 18px; padding: 0; }
+  li { margin-bottom: 3px; font-size: 13px; }
+  .tag-row { font-size: 13px; color: #333; }
+  @media print { body { margin: 0; } }
+</style></head>
+<body>
+  <h1>${esc(p.name)}</h1>
+  <div class="meta">${esc(p.location || '')}${p.years_experience ? ` · ${p.years_experience} years` : ''}${p.email ? ` · ${esc(p.email)}` : ''}</div>
+  ${p.headline ? `<div class="headline">${esc(p.headline)}</div>` : ''}
+  ${p.about ? `<div class="about">${esc(p.about)}</div>` : ''}
+
+  ${trades ? `<h2>Trades</h2><div class="tag-row">${trades}</div>` : ''}
+  ${work ? `<h2>Where I've worked</h2>${work}` : ''}
+  ${licenses ? `<h2>Credentials</h2><ul>${licenses}</ul>` : ''}
+  ${skills ? `<h2>Skills</h2><div class="tag-row">${skills}</div>` : ''}
+</body></html>`;
+}
 
 router.get('/me/strength', requireAuth, async (req, res) => {
   const u = req.user;

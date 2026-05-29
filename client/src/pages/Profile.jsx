@@ -9,6 +9,7 @@ import { TopNav } from '../components/TopNav.jsx';
 import {
   ProfileHeader, AboutSection, CompaniesSection, FeaturedSection,
   CredentialsSection, ProfileRightRail, ProfileStrengthBanner,
+  ProfileCompletenessCard,
 } from '../components/ProfileSections.jsx';
 import { api } from '../lib/api.js';
 import { useAuth } from '../lib/AuthContext.jsx';
@@ -71,6 +72,7 @@ export function ProfilePage({ userId }) {
               />
               <AboutSection profile={profile} isMe={isMe} onEdit={() => navigate('/profile/edit')}/>
               {isMe && <ProfileStrengthBanner onEdit={() => navigate('/profile/edit')}/>}
+              {isMe && <ProfileCompletenessCard onEdit={() => navigate('/profile/edit')}/>}
               <FeaturedSection profile={profile} isMe={isMe} navigate={navigate} onEdit={() => navigate('/profile/edit')}/>
               <CompaniesSection profile={profile} isMe={isMe} onEdit={() => navigate('/profile/edit')}/>
               <CredentialsSection profile={profile} isMe={isMe} onEdit={() => navigate('/profile/edit')}/>

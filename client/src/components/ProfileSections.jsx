@@ -1096,6 +1096,69 @@ export function ProfileStrengthBanner({ onEdit }) {
   );
 }
 
+// Outcome-linked completeness card. Distinct from ProfileStrengthBanner's
+// vanity %: each row names a real product feature the user unlocks when the
+// requirements are met (verified badge, Hire Me readiness, etc.). Sits on
+// the profile page next to the strength banner during phase 1 — once we
+// trust the new model, the old banner can retire.
+export function ProfileCompletenessCard({ onEdit }) {
+  const [data, setData] = React.useState(null);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    api.get('/profiles/me/completeness')
+      .then(d => { if (!cancelled) setData(d); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+
+  if (!data) return null;
+  const unlocks = data.unlocks || [];
+  if (unlocks.length === 0) return null;
+  // Hide the card once everything's unlocked — nothing left to nudge.
+  if (unlocks.every(u => u.done)) return null;
+
+  return (
+    <section style={{
+      background: B.surface, border: `1px solid ${B.line}`, borderRadius: 4,
+      padding: '18px 20px',
+    }}>
+      <div className="serif" style={{
+        color: B.text, fontWeight: 600, fontSize: 15, letterSpacing: '-0.01em',
+        marginBottom: 12,
+      }}>What you'll unlock</div>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {unlocks.map(u => (
+          <div key={u.id} style={{
+            display: 'flex', alignItems: 'flex-start', gap: 10,
+            opacity: u.done ? 0.55 : 1,
+          }}>
+            <div style={{
+              flexShrink: 0, width: 18, height: 18, marginTop: 1, borderRadius: '50%',
+              border: `1.5px solid ${u.done ? B.accent : B.line}`,
+              background: u.done ? B.accent : 'transparent',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              color: B.surface, fontSize: 11, fontWeight: 700,
+            }}>{u.done ? '✓' : ''}</div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 13.5, color: B.text, fontWeight: 500 }}>{u.title}</div>
+              <div style={{ fontSize: 12, color: B.dim, marginTop: 1 }}>{u.need}</div>
+            </div>
+            {!u.done && (
+              <button onClick={onEdit} style={{
+                background: 'transparent', border: 'none', color: B.accent,
+                fontSize: 12, fontWeight: 600, cursor: 'pointer', padding: '2px 4px',
+                whiteSpace: 'nowrap', flexShrink: 0,
+              }}>{u.cta} →</button>
+            )}
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 // Patch C: append the current JWT to a URL as ?token=<jwt> so that opening
 // the URL in a new browser tab (where the React app can't attach an
 // Authorization header) still authenticates against /api routes. The
