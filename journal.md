@@ -4,7 +4,7 @@ A durable record of decisions made, work shipped, and what's still open.
 Paste this at the start of a session so Claude is caught up in 30 seconds.
 Update it at the end of each session.
 
-**Last updated:** 2026-05-28 (Smith God accounts — network suggestions + auto-accept)
+**Last updated:** 2026-05-29 (Smith God accounts — phase 1 LIVE in prod)
 **Live URL:** https://smith-h86n.onrender.com
 **Repo:** github.com/bryanhollingshead/smith
 **Sole dev:** Bryan Hollingshead (product background)
@@ -13,6 +13,23 @@ Update it at the end of each session.
 ---
 
 ## ✅ Done — recent wins (in roughly reverse chronological order)
+
+### Smith God accounts — phase 1 LIVE in prod (2026-05-29)
+Prod flag confirmed done (was the one open step from the 05-28 build).
+- Verified in Render Shell: 4 accounts flagged `is_smith_god = TRUE` —
+  Hephaestus Smith (id 7), Ptah Memphis (8), Vulcan Rome (9), Ilmarinen Kalevala (10).
+  Suggestions + auto-accept key off the flag, not email, so the feature is live.
+- **Decision needed — god account emails are `@smith.test`, not `@smith.app`.**
+  Functionally fine (flag-driven), but `.test` is the reserved throwaway TLD → reads as
+  leftover seed data, can't receive a real code if verification is ever switched back on,
+  and looks unfinished if a user clicks through to a god's profile. Leaving as-is during
+  soft launch. Revisit if these become permanent branded accounts: real @smith.app
+  mailboxes or at least a consistent non-.test convention.
+- **Wayland not created.** 05-28 example list named him; current pantheon is 4. Treating
+  4 as the intended starter set unless decided otherwise.
+- **Still to verify (behavioral, not SQL):** log in as an under-connected account → confirm
+  gods surface under Suggestions with the `⚒ Smith original` line, and that connecting to
+  one lands as `accepted` immediately. Proves the shipped code path against real prod data.
 
 ### Smith God accounts — phase 1 (2026-05-28)
 A handful of existing accounts representing smith deities (Hephaestus, Vulcan, Ptah, Ilmarinen, Wayland, etc.) now surface as network "Suggestions" for new/under-connected users — a branding/onboarding device — without distorting the real friends-of-friends logic.
