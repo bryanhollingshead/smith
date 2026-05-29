@@ -4,7 +4,7 @@ A durable record of decisions made, work shipped, and what's still open.
 Paste this at the start of a session so Claude is caught up in 30 seconds.
 Update it at the end of each session.
 
-**Last updated:** 2026-05-29 (Smith God accounts — phase 1 LIVE in prod)
+**Last updated:** 2026-05-29 (Jobs module plan + Hire Me flow + Trusted Auto-Send logged)
 **Live URL:** https://smith-h86n.onrender.com
 **Repo:** github.com/bryanhollingshead/smith
 **Sole dev:** Bryan Hollingshead (product background)
@@ -13,6 +13,61 @@ Update it at the end of each session.
 ---
 
 ## ✅ Done — recent wins (in roughly reverse chronological order)
+
+### Jobs module (profile-first build) — planned (2026-05-29)
+Single-player utility before the network exists. Jobs are the forcing function that builds
+the profile (the real network asset), not a standalone board. Full build spec handed to
+Claude Code separately; summary here so the journal carries the shape.
+- **Phase order:** (1) resume/profile generation → (2) Adzuna ingestion via a JobSource
+  driver (same pattern as news ingestion + storage driver; KSL/Craigslist OUT — scrape-only,
+  ToS-hostile; direct user postings slot in later as just another driver) → (3) trade/skill
+  matching via job-types.js → (4) assisted apply (review-before-send) → (5) public,
+  searchable profiles.
+- **Resume ingest CONFIRMED in scope:** most tradesmen have no resume, but enough do —
+  PDF upload + parse pre-fills the profile (phase 1 secondary path); the light interview
+  flow covers everyone else. Both write into the existing work_history / credentials /
+  trades schema and render as a resume. Output is a Smith profile, not a document.
+- **Profile-steering (clean, value-aligned — no dark patterns):**
+  - Just-in-time capture — don't front-load a giant form; ask for fields at the moment
+    they're needed (first apply, first Hire-Me readiness). Motivation stays intrinsic.
+  - Soft apply-gating — applying needs the fields that job requires; Smith pre-fills, so
+    the job itself is the reason to complete the profile.
+  - Completeness tied to OUTCOMES not vanity %: "Add your license → Verified badge on your
+    public profile," "Add 2 more jobs → your Hire Me page looks complete." Every step
+    unlocks the thing they already want (work).
+  - Resume fast-start CTA — "Have a resume? Drop it, profile built in 30s."
+  - License/credential verification as status — tradesmen are proud of their tickets; a
+    verified badge is a pull, not a nag.
+
+### Hire Me flow — planned (2026-05-29)
+The inbound counterpart to Apply. Apply = tradesman → job (outbound). Hire Me = work →
+tradesman (inbound). Both route through the profile, so both reward a complete one.
+- "Hire Me" button on every public profile.
+- Click → structured inquiry form using job-types.js vocab (structure type / job type /
+  location / timeline / message) so the tradesman gets a QUALIFIED lead, not "u available?".
+- Inquirer needs no Smith account — capture name + contact + structured details. Doubles
+  as a growth vector: the hirer is a warm signup target.
+- Inquiry lands as a Smith notification + message thread (reuse existing messages infra);
+  email fallback where relevant. Connection-of inquiries flagged/prioritized.
+- Anti-spam: rate-limit + required contact info.
+- Why it matters: turns the public profile from a static résumé into a lead-gen surface —
+  the single strongest reason for a tradesman to complete AND publicize their profile
+  (better profile → more Hire Me clicks → more work). Ties directly into the steering above.
+
+### Trusted Auto-Send (deferred this build — but a flagship feature, don't lose it)
+Out of scope for the current Jobs build (assisted apply / review-before-send ships first),
+but this is the destination the apply architecture is being built toward and a real
+differentiator vs every generic board.
+- For matched jobs that publish a direct contact (email/phone — common in trades), Smith
+  sends a tailored, profile-derived outreach automatically, no per-message review.
+- Strictly opt-in + per-template: user approves a template + match criteria ONCE, then
+  Smith fires on qualifying matches. Never silent, never spray-and-pray.
+- Direct-contact listings only (a real person Smith emails/texts) — never botted
+  third-party forms. Keeps it non-spammy and ToS-clean.
+- Gated on proven match precision: enable only after assisted-apply data shows matches are
+  tight enough that auto-send won't burn the user's (or Smith's) reputation.
+- The application_drafts table (channel + status fields) is being built NOW to support
+  this later with zero schema rework.
 
 ### Smith God accounts — phase 1 LIVE in prod (2026-05-29)
 Prod flag confirmed done (was the one open step from the 05-28 build).
