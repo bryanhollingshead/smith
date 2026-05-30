@@ -163,7 +163,9 @@ export const adzunaDriver = {
     const url = `${ADZUNA_BASE}/${encodeURIComponent(country)}/search/${page}?${params.toString()}`;
 
     const res = await fetch(url, {
-      headers: { 'User-Agent': 'SmithBot/0.1 (+https://smith.app)' },
+      // Adzuna's edge (Chef-managed) returns 503 on UAs containing "Bot".
+      // Drop the suffix so the request looks like a regular client.
+      headers: { 'User-Agent': 'Smith/0.1 (+https://smith.app)' },
       signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     });
     if (!res.ok) {
