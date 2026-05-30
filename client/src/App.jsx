@@ -22,6 +22,7 @@ import { NetworkPage } from './pages/Network.jsx';
 import { AlertsPage } from './pages/Alerts.jsx';
 import { NewsPage } from './pages/News.jsx';
 import { NewsSavedPage } from './pages/NewsSaved.jsx';
+import { JobsPage } from './pages/Jobs.jsx';
 import { AdminNewsPage } from './pages/AdminNews.jsx';
 import { MessagesPage } from './pages/Messages.jsx';
 import { MessagesProvider } from './lib/MessagesContext.jsx';
@@ -76,6 +77,7 @@ export function App() {
         if (path === '/alerts') return <AlertsPage/>;
         if (path === '/news') return <NewsPage/>;
         if (path === '/news/saved') return <NewsSavedPage/>;
+        if (path === '/jobs') return <JobsPage/>;
         if (path === '/admin/news') return <AdminNewsPage/>;
         if (path === '/messages') return <MessagesPage/>;
         const msgMatch = match('/messages/:id', path);

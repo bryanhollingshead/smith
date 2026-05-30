@@ -21,6 +21,7 @@ import { requireAuth } from '../middleware.js';
 import { deleteDocFile } from './credential-docs.js';
 import { publicUrl } from '../storage.js';
 import { parseResumeBuffer } from '../resume-parse.js';
+import { recomputeMatchesForUserAsync } from '../jobs/match.js';
 
 const router = Router();
 
@@ -300,6 +301,10 @@ router.patch('/me', requireAuth, async (req, res) => {
     deleteDocFile(oldInsDoc, req.userId);
   }
 
+  // Location may have changed — refresh match scores. Fire-and-forget so
+  // the PATCH response isn't blocked on a small DB loop.
+  if ('location' in updates) recomputeMatchesForUserAsync(req.userId);
+
   const profile = await loadProfile(req.userId, req.userId);
   res.json({ profile });
 });
@@ -327,6 +332,7 @@ router.post('/me/trades', requireAuth, async (req, res) => {
       );
     }
   });
+  recomputeMatchesForUserAsync(req.userId);
   const profile = await loadProfile(req.userId, req.userId);
   res.json({ profile });
 });
@@ -418,6 +424,7 @@ router.post('/me/skills', requireAuth, async (req, res) => {
       );
     }
   });
+  recomputeMatchesForUserAsync(req.userId);
   const profile = await loadProfile(req.userId, req.userId);
   res.json({ profile });
 });
@@ -671,6 +678,12 @@ router.post('/me/interview/step', requireAuth, async (req, res) => {
         return res.status(400).json({ error: `Unknown step: ${step}` });
     }
 
+    // header / trades / skills directly affect match scoring; trigger a
+    // recompute. work_history + licenses don't move scores (yet — phase 3
+    // doesn't use them), so skip the work to keep step saves snappy.
+    if (step === 'header' || step === 'trades' || step === 'skills') {
+      recomputeMatchesForUserAsync(req.userId);
+    }
     res.json({ ok: true });
   } catch (e) {
     console.error('[interview/step]', e);

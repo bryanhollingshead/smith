@@ -11,6 +11,7 @@
 import 'dotenv/config';
 import { pool, q } from './db.js';
 import { getDriver } from './jobs/sources/index.js';
+import { recomputeAllMatches } from './jobs/match.js';
 
 // Max pages drained per source per cycle. Driver-level max_pages can lower
 // this further (Adzuna defaults to 3). Hard global cap keeps a misconfigured
@@ -138,14 +139,28 @@ export async function ingestAllJobs({ onlyEnabled = true } = {}) {
       ORDER BY id`
   );
   const summary = [];
+  let totalInserted = 0, totalUpdated = 0;
   for (const s of sources) {
     const r = await ingestOne(s);
     summary.push(r);
+    totalInserted += r.inserted;
+    totalUpdated += r.updated;
     console.log(
       r.error
         ? `[ingest-jobs] ✗ ${r.source} — ${r.error}`
         : `[ingest-jobs] ✓ ${r.source} — ${r.inserted} new, ${r.updated} updated`
     );
+  }
+  // Recompute matches if there was any churn — score updates can shift
+  // ranking even when no new jobs landed (e.g. salary correction). Skip if
+  // nothing changed so an idle cycle is a no-op.
+  if (totalInserted > 0 || totalUpdated > 0) {
+    try {
+      const r = await recomputeAllMatches();
+      console.log(`[ingest-jobs] recomputed matches — ${r.users} users, ${r.totalScored} jobs scored`);
+    } catch (e) {
+      console.error('[ingest-jobs] match recompute failed:', e.message);
+    }
   }
   return summary;
 }

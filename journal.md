@@ -4,7 +4,7 @@ A durable record of decisions made, work shipped, and what's still open.
 Paste this at the start of a session so Claude is caught up in 30 seconds.
 Update it at the end of each session.
 
-**Last updated:** 2026-05-29 (Jobs module phase 2 — Adzuna driver + ingestion scheduler shipped)
+**Last updated:** 2026-05-29 (Jobs module phase 3 — matching + ranked feed UI shipped)
 **Live URL:** https://smith-h86n.onrender.com
 **Repo:** github.com/bryanhollingshead/smith
 **Sole dev:** Bryan Hollingshead (product background)
@@ -13,6 +13,89 @@ Update it at the end of each session.
 ---
 
 ## ✅ Done — recent wins (in roughly reverse chronological order)
+
+### Jobs module — phase 3 shipped: matching + ranked feed UI (2026-05-29)
+Third of the 5 planned phases. No migration (010 already laid the schema).
+
+**Scoring algorithm (`server/src/jobs/match.js`):**
+Blended (not strictly tiered) so a same-trade local with 0 mutuals can still
+surface highly. Composition:
+- Trade: **+20** if primary trade in `jobs.trade_tags`, **+10** per non-primary trade match
+- Skill overlap: **+2** per shared skill (case-insensitive)
+- Proximity: **+10** same city, **+5** same state (substring on `location` strings)
+- Recency multiplier: **1.0** (≤14d), **0.8** (≤30d), **0.6** (≤60d), **0.4** older
+- `final = (trade + skill + location) × recency`, rounded to 2 dp.
+
+Verified against Marcus's seed data (carpentry primary, Cottonwood Heights):
+Master Carpenter SLC posted 3d ago = **37** (20 primary + 10 secondary trade +
+2 skill + 5 state); Cabinet Maker Provo posted 45d ago = **28.2** (47 base ×
+0.6 recency). Non-carpentry jobs cluster at 0-5.
+
+Deferred per the journal's "SLC algo improvements" section: company-overlap
+referral signal, blend tuning beyond first pass.
+
+**Recompute triggers (sync, fire-and-forget on profile path):**
+- `recomputeMatchesForUser(userId)` upserts every job's score for one user.
+  Called sync on first `GET /api/jobs` if `job_matches` is empty for the user,
+  async (fire-and-forget) after `PATCH /me` (location change), `POST /me/trades`,
+  `POST /me/skills`, and matching steps of `POST /me/interview/step`.
+- `recomputeAllMatches()` loops every user × every job. Called at the end of
+  every ingestion cycle in `ingestAllJobs()` (skipped if no churn).
+- `ON CONFLICT (user_id, job_id) DO UPDATE` preserves `saved_at` and
+  `dismissed_at` — those are user actions, not derived, so they stick across
+  recomputes.
+
+**Public Jobs feed endpoints (in `routes/jobs.js`):**
+- `GET    /api/jobs`           ranked feed; filters `?trade=`, `?has_direct_contact=1`,
+  `?prevailing_wage=1`, `?saved=1`, `?include_dismissed=1`, `?posted_since=<days>`,
+  `?limit=`, `?offset=`. Sorted by (saved DESC, score DESC, posted_at DESC).
+- `GET    /api/jobs/:id`       full detail + computed score, exposes
+  description + contact fields hidden in list shape.
+- `POST/DELETE /api/jobs/:id/save`     bookmark toggle (idempotent).
+- `POST/DELETE /api/jobs/:id/dismiss`  hide-from-default (sticky across recomputes).
+
+**Frontend (`client/src/pages/Jobs.jsx`):**
+- New `/jobs` page wired into App.jsx + TopNav (`briefcase` icon, between
+  Network and News).
+- Filter chips: All / Saved / Direct contact / Prevailing wage.
+- Job cards: title + company + location + relative posted time, salary,
+  trade chips (canonical) + skill chips (first 4), badges ("Direct contact",
+  "Prevailing wage"), match score + source attribution.
+- Inline Save / Dismiss / View source ↗ buttons. Save + dismiss are
+  optimistic with reload-on-error reconciliation.
+- Empty state per filter — explains what to do or what to expect.
+
+**Dev seed (`server/src/seed-jobs-dev.js`, `npm run seed-jobs-dev`):**
+- 8 fake jobs across SLC metro + a couple of decoys (Provo cabinet maker,
+  Park City finish, SF project manager). Mix of trades, salaries, prevailing
+  wage flag, direct contact. Sources from a `dev_seed` row in `job_sources`
+  (disabled so the scheduler ignores it). Idempotent: re-runs upsert on the
+  dedup key + re-trigger `recomputeAllMatches()`.
+
+**Verified end-to-end (server, curl as Marcus):**
+- `GET /api/jobs` returns 8 ranked rows — Master Carpenter (37) > Cabinet
+  Maker (28.2) > Finish Carpenter (27) > everything else.
+- `?prevailing_wage=1` returns just the Davis-Bacon row.
+- POST save / DELETE save toggle correctly.
+- POST dismiss removes from default feed (total drops 8 → 7) and persists
+  across `?include_dismissed=0` queries.
+- DELETE dismiss restores. Cleaned up state at end of test.
+- Client `vite build` clean (382 KB / 102 KB gzip — +7 KB over phase 2).
+
+**NOT verified:** browser click-through of the Jobs page (chips, cards,
+save/dismiss UX). Build passes, API wiring matches the page contract, but
+the visual layer needs eyeballs.
+
+**Default behavior in prod:**
+- No real jobs flowing until Adzuna creds are set + `enabled=TRUE` on the
+  source row (from phase 2). The Jobs page will show an empty state until then.
+- Once jobs ingest, `recomputeAllMatches` runs in-cycle so the feed populates
+  for every existing user without per-user triggers.
+
+**Phase 4 next:** assisted apply — `POST /api/jobs/:id/draft` generates a
+profile-derived outreach via Sonnet 4.6 (gated by `ASSISTED_APPLY_LLM`),
+saves to `application_drafts` (migration 011), user reviews + sends via
+email/sms/deep-link. Foundation for Trusted Auto-Send (phase 6).
 
 ### Jobs module — phase 2 shipped: Adzuna driver + ingestion (2026-05-29)
 Second of the 5 planned phases. **Migration 010** adds the destination tables;

@@ -66,6 +66,7 @@ export function TopNav({ active }) {
     { k: 'feed', label: 'Feed', icon: 'home', to: '/feed' },
     { k: 'profile', label: 'Profile', icon: 'user', to: '/profile' },
     { k: 'connections', label: 'Network', icon: 'users', to: '/network' },
+    { k: 'jobs', label: 'Jobs', icon: 'briefcase', to: '/jobs' },
     { k: 'news', label: 'News', icon: 'newspaper', to: '/news' },
     { k: 'messages', label: 'Messages', icon: 'message', to: '/messages',
       badge: unreadMessages || null },
