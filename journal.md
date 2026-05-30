@@ -4,7 +4,7 @@ A durable record of decisions made, work shipped, and what's still open.
 Paste this at the start of a session so Claude is caught up in 30 seconds.
 Update it at the end of each session.
 
-**Last updated:** 2026-05-29 (Jobs module phase 1 — resume import + completeness shipped)
+**Last updated:** 2026-05-29 (Jobs module phase 2 — Adzuna driver + ingestion scheduler shipped)
 **Live URL:** https://smith-h86n.onrender.com
 **Repo:** github.com/bryanhollingshead/smith
 **Sole dev:** Bryan Hollingshead (product background)
@@ -13,6 +13,93 @@ Update it at the end of each session.
 ---
 
 ## ✅ Done — recent wins (in roughly reverse chronological order)
+
+### Jobs module — phase 2 shipped: Adzuna driver + ingestion (2026-05-29)
+Second of the 5 planned phases. **Migration 010** adds the destination tables;
+no UI yet (Jobs feed lands in phase 3 with matching).
+
+**Migration 010 — additive, three tables:**
+- `job_sources` — driver registry, mirrors `news_feeds`. Each row is one
+  ingestion config (driver name + JSONB config + enabled flag + last-run health).
+- `jobs` — normalized destination. `UNIQUE (source_driver, source_job_id)` is
+  the dedup key (analogous to `news_articles.source_url`). 28 columns covering
+  title/company/description/location/lat-lng/salary/url/contact/trade_tags/
+  skill_tags/structure_type/job_type/is_prevailing_wage/is_direct_post/
+  posted_by_user_id/posted_at/ingested_at/hidden. GIN indexes on both tag
+  arrays for phase-3 ranking. `source_id` is ON DELETE SET NULL so deleting a
+  source doesn't drop the jobs ingested from it.
+- `job_matches` — empty for now, populated in phase 3. Composite PK
+  `(user_id, job_id)` so recompute is INSERT…ON CONFLICT UPDATE. Two partial
+  indexes for the two read patterns (ranked feed + saved list).
+
+**Seed:** one `job_sources` row for Adzuna SLC (`country:us`,
+`where:"Salt Lake City"`, `results_per_page:50`, `max_days_old:14`),
+`enabled=FALSE`. Geography lives in JSONB so adding metros is one INSERT.
+
+**JobSource driver interface (mirror of `storage.js`):**
+- `server/src/jobs/sources/index.js` — driver registry, one export
+  (`getDriver(name)` + `listDrivers()`). Adding a driver = add a file + register.
+- `server/src/jobs/sources/adzuna.js` — `adzunaDriver.fetchPage(config, cursor)`
+  returns `{items, nextCursor}`. Cursor is opaque to the ingester (`{page}` for
+  Adzuna). Reads `ADZUNA_APP_ID`/`ADZUNA_APP_KEY` from env (never config blob).
+  Hard timeout 20s, page cap configurable per source (default 3). Trade/skill
+  tag inference is keyword-based (mirrors `ingest-news.js`); phase 3 wraps a
+  richer matcher via job-types.js. Detects `prevailing wage`/`davis-bacon` for
+  the phase-3 feed filter.
+
+**Ingester (`server/src/ingest-jobs.js`):**
+- Walks enabled `job_sources` rows, calls `driver.fetchPage` until `nextCursor`
+  is null (or `HARD_PAGE_CAP=20` reached), upserts each item.
+- Upsert uses `ON CONFLICT (source_driver, source_job_id) DO UPDATE` so edits
+  at the source (salary changes, location fixes) propagate, and `ingested_at`
+  refreshes on every cycle so source-health reads "last seen N hours ago."
+  Insert-vs-update detected via the `xmax = 0` Postgres trick.
+- Records `last_status`/`last_count` to `job_sources` so the admin UI can show
+  "Adzuna SLC — 47 new 12 min ago" or "ERROR: ADZUNA_APP_ID + ADZUNA_APP_KEY
+  not set" without log diving. Bad rows skip; failed source doesn't tank cycle.
+
+**Scheduler (`index.js`):**
+- Mirrors the news scheduler. 60-min cadence, prod only. Offset 90s from news
+  startup (vs news's 30s) so external APIs aren't slammed in the same window.
+- Mounted route file: `server/src/routes/jobs.js`.
+
+**Admin endpoints (all `requireAdmin`):**
+- `GET    /api/admin/jobs/sources`        list + health + `available_drivers`
+- `POST   /api/admin/jobs/sources`        add a source
+- `PATCH  /api/admin/jobs/sources/:id`    enable/disable/edit name+config
+- `DELETE /api/admin/jobs/sources/:id`    drop (jobs survive via SET NULL)
+- `POST   /api/admin/jobs/ingest`         run cycle now, return summary
+
+`driver` is intentionally immutable via PATCH — change drivers by delete+
+recreate to avoid silent shape changes mid-ingest.
+
+**Dev npm script:** `npm run ingest-jobs` runs one cycle from CLI (mirrors
+`npm run ingest` for news).
+
+**Verified end-to-end:**
+- Migration applies cleanly (`npm run migrate` → "applying 010_jobs.sql").
+- Schema confirmed via direct DB query: 9/28/6 columns on the three tables.
+- Seed Adzuna SLC row present, disabled.
+- Server boots clean with both ingest schedulers wired (only fire in prod).
+- All 4 admin endpoints work as Marcus (admin in dev). 401 without auth.
+- Manual ingest with disabled source → empty summary (no-op).
+- Manual ingest with enabled source, no Adzuna creds → clean error recorded
+  to `last_status`: "ADZUNA_APP_ID + ADZUNA_APP_KEY not set". Loop survives.
+- `npm run ingest-jobs` CLI works.
+
+**To turn on in prod:**
+1. Set `ADZUNA_APP_ID` + `ADZUNA_APP_KEY` in Render env (free tier at
+   developer.adzuna.com).
+2. Flip the seed source to enabled via curl or Render Shell:
+   `UPDATE job_sources SET enabled = TRUE WHERE driver = 'adzuna';`
+   Or wait for an admin UI in phase 3.
+3. Within 90s of next deploy, first ingest fires. Monitor via
+   `GET /api/admin/jobs/sources` (or Render logs for `[ingest-jobs]`).
+
+**Phase 3 next:** matching (job-types.js trade ↔ jobs.trade_tags + skill
+overlap + proximity + recency, blended score), `job_matches` populated on
+ingest + on profile edits, public Jobs feed UI (`GET /api/jobs`,
+`GET /api/jobs/:id`, save/dismiss).
 
 ### Jobs module — phase 1 shipped: resume import + completeness (2026-05-29)
 First of the 5 planned phases (see [[Jobs module (profile-first build) — planned]]).

@@ -13,6 +13,7 @@
     "seed-demo": "node src/seed-demo.js",
     "reset": "node src/migrate.js --drop && node src/migrate.js && node src/seed.js",
     "ingest": "node src/ingest-news.js",
+    "ingest-jobs": "node src/ingest-jobs.js",
     "test": "node --test tests/"
   },
   "dependencies": {

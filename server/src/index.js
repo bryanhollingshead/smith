@@ -32,6 +32,8 @@ import photosRouter from './routes/photos.js';
 import filesRouter from './routes/files.js';
 import { readClientVersion } from './middleware-version.js';
 import { ingestAll } from './ingest-news.js';
+import { ingestAllJobs } from './ingest-jobs.js';
+import jobsRouter from './routes/jobs.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
@@ -69,6 +71,7 @@ app.use('/api/messages', messagesRouter); // /threads, /threads/:id/messages, /u
 app.use('/api', openapiRouter);       // /openapi.yaml, /openapi.json, /docs
 app.use('/api/photos', photosRouter); // /avatar, /cover  (POST + DELETE)
 app.use('/api', filesRouter);         // /files/*  (serves storage objects)
+app.use('/api', jobsRouter);          // /admin/jobs/*  (phase 2); /jobs/* feed lands in phase 3
 
 // ── Static SPA serving (production only) ────────────────────────────────
 // The React build lands at ../../client/dist relative to this file. We:
@@ -171,6 +174,38 @@ if (IS_PROD) {
   setTimeout(runIngest, 30_000);
   setInterval(runIngest, HOUR_MS);
   console.log(`[ingest] scheduler armed — first run in 30s, then every ${HOUR_MS / 60_000}m`);
+
+  // ── Jobs ingestion scheduler (mirrors the news one) ─────────────────────
+  // Sources without credentials (ADZUNA_APP_ID/ADZUNA_APP_KEY) error fast and
+  // record the reason to job_sources.last_status — the loop keeps running so
+  // adding creds later "just works" without a redeploy. The seed Adzuna
+  // source ships with enabled=FALSE; flip it on after wiring credentials.
+  const runJobsIngest = async () => {
+    const startedAt = new Date();
+    try {
+      const summary = await ingestAllJobs();
+      const totals = summary.reduce(
+        (acc, r) => ({
+          inserted: acc.inserted + (r.inserted || 0),
+          updated:  acc.updated  + (r.updated  || 0),
+          errors:   acc.errors   + (r.error ? 1 : 0),
+        }),
+        { inserted: 0, updated: 0, errors: 0 }
+      );
+      const duration = ((Date.now() - startedAt) / 1000).toFixed(1);
+      console.log(
+        `[ingest-jobs] cycle done — ${summary.length} sources, ` +
+        `${totals.inserted} new, ${totals.updated} updated, ${totals.errors} errors, ${duration}s`
+      );
+    } catch (e) {
+      console.error('[ingest-jobs] cycle threw:', e.message || e);
+    }
+  };
+  // Offset by 60s vs the news ingest so we don't slam external APIs in the
+  // same window on every cycle.
+  setTimeout(runJobsIngest, 90_000);
+  setInterval(runJobsIngest, HOUR_MS);
+  console.log(`[ingest-jobs] scheduler armed — first run in 90s, then every ${HOUR_MS / 60_000}m`);
 }
 
 // Graceful shutdown so docker-compose / CI doesn't hang.
