@@ -49,7 +49,7 @@ function parseUrls(stored) {
   return out;
 }
 
-async function loadProfile(userId, viewerId) {
+export async function loadProfile(userId, viewerId) {
   const userP = q(
     `SELECT id, email, email_verified, first_name, last_name, headline, location, about,
             avatar_tone, cover_kind, avatar_url, cover_url, verified_smith, years_experience,

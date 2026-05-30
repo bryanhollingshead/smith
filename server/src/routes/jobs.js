@@ -45,6 +45,9 @@ function shapeJobListItem(row) {
     score: row.score != null ? Number(row.score) : 0,
     saved: !!row.saved_at,
     dismissed: !!row.dismissed_at,
+    applied: !!row.sent_at,         // phase 4 — apply status from application_drafts join
+    applied_at: row.sent_at || null,
+    application_id: row.application_id || null,
   };
 }
 
@@ -213,9 +216,11 @@ router.get('/jobs', requireAuth, async (req, res) => {
             j.salary_min, j.salary_max, j.salary_currency, j.salary_period, j.salary_is_predicted,
             j.url, j.trade_tags, j.skill_tags, j.contact_email, j.contact_phone,
             j.is_prevailing_wage, j.is_direct_post, j.source_driver, j.posted_at,
-            jm.score, jm.saved_at, jm.dismissed_at
+            jm.score, jm.saved_at, jm.dismissed_at,
+            ad.id AS application_id, ad.sent_at
        FROM jobs j
        JOIN job_matches jm ON jm.job_id = j.id
+       LEFT JOIN application_drafts ad ON ad.job_id = j.id AND ad.user_id = $1
       WHERE ${where.join(' AND ')}
       ORDER BY (jm.saved_at IS NOT NULL) DESC, jm.score DESC, j.posted_at DESC NULLS LAST
       LIMIT $${params.length - 1} OFFSET $${params.length}`,
@@ -245,9 +250,11 @@ router.get('/jobs/:id', requireAuth, async (req, res) => {
   if (!Number.isFinite(id)) return res.status(400).json({ error: 'Invalid id' });
 
   const { rows } = await q(
-    `SELECT j.*, jm.score, jm.saved_at, jm.dismissed_at
+    `SELECT j.*, jm.score, jm.saved_at, jm.dismissed_at,
+            ad.id AS application_id, ad.sent_at
        FROM jobs j
        LEFT JOIN job_matches jm ON jm.job_id = j.id AND jm.user_id = $1
+       LEFT JOIN application_drafts ad ON ad.job_id = j.id AND ad.user_id = $1
       WHERE j.id = $2 AND NOT j.hidden`,
     [req.userId, id]
   );

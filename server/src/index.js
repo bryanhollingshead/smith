@@ -34,6 +34,7 @@ import { readClientVersion } from './middleware-version.js';
 import { ingestAll } from './ingest-news.js';
 import { ingestAllJobs } from './ingest-jobs.js';
 import jobsRouter from './routes/jobs.js';
+import applicationsRouter from './routes/applications.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
@@ -72,6 +73,7 @@ app.use('/api', openapiRouter);       // /openapi.yaml, /openapi.json, /docs
 app.use('/api/photos', photosRouter); // /avatar, /cover  (POST + DELETE)
 app.use('/api', filesRouter);         // /files/*  (serves storage objects)
 app.use('/api', jobsRouter);          // /admin/jobs/*  (phase 2); /jobs/* feed lands in phase 3
+app.use('/api', applicationsRouter);  // /jobs/:id/draft, /applications/*  (phase 4)
 
 // ── Static SPA serving (production only) ────────────────────────────────
 // The React build lands at ../../client/dist relative to this file. We:

@@ -4,7 +4,7 @@ A durable record of decisions made, work shipped, and what's still open.
 Paste this at the start of a session so Claude is caught up in 30 seconds.
 Update it at the end of each session.
 
-**Last updated:** 2026-05-29 (Jobs module phase 3 — matching + ranked feed UI shipped)
+**Last updated:** 2026-05-29 (Jobs module phase 4 — assisted apply review-before-send shipped)
 **Live URL:** https://smith-h86n.onrender.com
 **Repo:** github.com/bryanhollingshead/smith
 **Sole dev:** Bryan Hollingshead (product background)
@@ -13,6 +13,102 @@ Update it at the end of each session.
 ---
 
 ## ✅ Done — recent wins (in roughly reverse chronological order)
+
+### Jobs module — phase 4 shipped: assisted apply (review-before-send) (2026-05-29)
+Fourth of the 5 planned phases. **Foundation for Trusted Auto-Send** (phase 6
+shares the same `application_drafts` table — only adds `status='auto_sent'` +
+a templates table later).
+
+**Migration 011 — additive, one table:**
+- `application_drafts` (one row per `(user_id, job_id)` — UNIQUE constraint):
+  `generated_body` (the model/template output, preserved verbatim),
+  `edited_body` (user edits, nullable), `channel` ('email'|'sms'|'onsite'|
+  'deeplink'), `status` ('draft'|'sent'|'auto_sent'), `recipient_email/phone`,
+  `sent_at`, `send_error`, `llm_model` (NULL = template fallback),
+  `created_at/updated_at`. CHECK constraints on channel + status.
+  `updated_at` trigger reuses the `set_updated_at()` function from migration 001.
+
+**LLM wrapper (`server/src/llm.js` — phase 1 stub filled in):**
+- `draftApplicationMessage(profile, job) → { body, model }` using Sonnet 4.6,
+  `output_config: { effort: 'medium' }`. Stable system prompt under
+  `cache_control: ephemeral` so repeat drafts hit the prefix cache (sub-penny
+  per draft after the first).
+- **Three tiers of cost control** (as locked in the plan): model demotion
+  → flag (`ASSISTED_APPLY_LLM=false`) → fall through to template draft. Each
+  tier is documented; flipping the flag in Render env disables Anthropic
+  spend without a redeploy.
+- `templateDraftFallback()` produces a deterministic, edit-ready draft using
+  the user's first name, primary trade, years, recent roles, licenses, and
+  contact email. Never throws; the model path also degrades to template on
+  any error/refusal.
+
+**Public API (`server/src/routes/applications.js`):**
+- `POST   /api/jobs/:id/draft`        idempotent — returns existing or creates
+- `GET    /api/applications`          list (filters by `?status=`)
+- `GET    /api/applications/:id`      single
+- `PATCH  /api/applications/:id`      edit body/channel/recipient (4xx if sent)
+- `POST   /api/applications/:id/send` route by channel (email/deeplink ship;
+  sms+onsite return 501 — schema is in place, providers aren't wired)
+- `DELETE /api/applications/:id`      lets user re-draft from scratch
+
+Channels:
+- **email** — `sendMockEmail()` from `mailer.js`. Always writes to
+  `mock_emails` + logs + tries Resend. Treated as "sent" even when Resend
+  delivery is silent (Path A constraints: real delivery only to Bryan's
+  address until Resend Path B is up).
+- **deeplink** — no real send; status flips to 'sent' so the row is closed,
+  user copies the body and pastes into the source posting. The Done screen
+  shows the body + "Copy text" + "Open source ↗".
+
+**Frontend:**
+- `client/src/components/ApplyModal.jsx` — review-before-send modal. Opens
+  via `POST /jobs/:id/draft` (idempotent), shows the generated body in an
+  editable textarea, channel picker (email vs deep-link), recipient field.
+  Edits PATCH on blur. Send POSTs to `/applications/:id/send`. Done stage
+  shows confirmation; deep-link stage adds "Copy text" + "Open source ↗".
+- A small **"Drafted from a template"** info banner shows when `llm_model`
+  is null (no Anthropic key set / flag off) so the user knows to expect a
+  stiffer first draft.
+- `pages/Jobs.jsx`: "View source ↗" replaced with **"Apply with Smith"**
+  button on every job. After send → swaps to **"✓ Applied"** badge.
+  `/api/jobs` now LEFT JOINs `application_drafts` so the `applied` /
+  `applied_at` / `application_id` fields are present in the feed payload.
+
+**Verified end-to-end (server, curl as Marcus, no Anthropic key set):**
+- POST `/jobs/1/draft` → template fallback (`llm_model: null`), body reads
+  naturally ("Hi Wasatch Build Co. team, I'm Marcus, a Carpentry with 18
+  years…"), pre-fills recipient from `jobs.contact_email`.
+- Re-POST is idempotent (same id).
+- PATCH edits body + recipient. Send flips status='sent', `sent_at` set,
+  `mock_emails` row recorded with `meta={application_id, job_id}`.
+- Send-twice → 409 "Already sent". PATCH on sent → 409.
+- POST `/jobs/3/draft` (no contact) auto-selects channel `deeplink`. Send
+  is a no-op (status → 'sent', no email).
+- `/api/jobs` feed correctly surfaces `applied: true` / `applied_at` after
+  send — the "Apply with Smith" → "✓ Applied" swap will just work.
+- Client `vite build` clean (390 KB / 104 KB gzip — +8 KB over phase 3).
+
+**NOT verified:** browser click-through of the Apply modal — open, edit,
+send, done states. API contract matches; build clean.
+
+**Template draft has a minor wording rough edge** in the LLM-off path
+("a Carpentry with 18 years" — should read "a carpenter"). Cosmetic; the
+LLM path writes naturally. Will polish once we're running with a real key
+and see how often the fallback fires.
+
+**To enable LLM-drafted outreach in prod:**
+1. `ANTHROPIC_API_KEY` in Render env (same key as the phase-1 resume parser).
+2. Optional: `ASSISTED_APPLY_LLM=true` (default; explicit toggle for kill switch).
+3. Cost guardrail: Sonnet 4.6 at ~$0.005/draft uncached, ~$0.001 with the
+   stable-system-prompt cache hit. If real usage suggests this is too steep:
+   demote to Haiku 4.5 in `llm.js` (one constant change) before killing the
+   feature outright.
+
+**Phase 5 next (final phase of Jobs module):** Public profiles + Hire Me —
+`is_public` flag + `public_slug` (migration 012), `/profile/:slug`
+unauthenticated render, `/api/public/search`, no-auth `POST
+/api/public/hire-me/:slug` opens a Smith message thread + magic-link reply
+flow.
 
 ### Jobs module — phase 3 shipped: matching + ranked feed UI (2026-05-29)
 Third of the 5 planned phases. No migration (010 already laid the schema).

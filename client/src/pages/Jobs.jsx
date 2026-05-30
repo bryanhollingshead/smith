@@ -10,6 +10,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { B } from '../lib/theme.js';
 import { TopNav } from '../components/TopNav.jsx';
 import { Icon } from '../components/Icon.jsx';
+import { ApplyModal } from '../components/ApplyModal.jsx';
 import { api } from '../lib/api.js';
 
 const FILTERS = [
@@ -24,6 +25,7 @@ export function JobsPage() {
   const [data, setData] = useState({ jobs: [], total: 0, limit: 25, offset: 0 });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [applyingTo, setApplyingTo] = useState(null);   // job object — opens ApplyModal
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -110,15 +112,26 @@ export function JobsPage() {
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           {data.jobs.map(j => (
-            <JobCard key={j.id} job={j} onToggleSave={() => toggleSave(j)} onDismiss={() => dismissJob(j)}/>
+            <JobCard key={j.id} job={j}
+                     onToggleSave={() => toggleSave(j)}
+                     onDismiss={() => dismissJob(j)}
+                     onApply={() => setApplyingTo(j)}/>
           ))}
         </div>
+
+        {applyingTo && (
+          <ApplyModal
+            job={applyingTo}
+            onClose={() => setApplyingTo(null)}
+            onApplied={() => load()}
+          />
+        )}
       </main>
     </div>
   );
 }
 
-function JobCard({ job, onToggleSave, onDismiss }) {
+function JobCard({ job, onToggleSave, onDismiss, onApply }) {
   return (
     <article style={{
       background: B.surface, border: `1px solid ${B.line}`, borderRadius: 4,
@@ -179,12 +192,18 @@ function JobCard({ job, onToggleSave, onDismiss }) {
             background: 'transparent', color: B.dim, border: `1px solid ${B.line}`,
             padding: '7px 12px', borderRadius: 100, fontSize: 12, fontWeight: 600, cursor: 'pointer',
           }}>Dismiss</button>
-          {job.url && (
-            <a href={job.url} target="_blank" rel="noopener noreferrer" style={{
-              background: B.accent, color: B.surface,
+          {job.applied ? (
+            <span title={`Applied ${job.applied_at ? new Date(job.applied_at).toLocaleDateString() : ''}`} style={{
+              background: B.surface2, color: B.text, border: `1px solid ${B.line}`,
               padding: '7px 14px', borderRadius: 100, fontSize: 12, fontWeight: 600,
-              textDecoration: 'none',
-            }}>View source ↗</a>
+              display: 'inline-flex', alignItems: 'center', gap: 4,
+            }}>✓ Applied</span>
+          ) : (
+            <button onClick={onApply} style={{
+              background: B.accent, color: B.surface, border: 'none',
+              padding: '7px 14px', borderRadius: 100, fontSize: 12, fontWeight: 600,
+              cursor: 'pointer',
+            }}>Apply with Smith</button>
           )}
         </div>
       </div>
