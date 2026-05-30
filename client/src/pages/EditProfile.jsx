@@ -18,6 +18,7 @@ import { STRUCTURE_TYPES, orderedJobTypeCategories, suggestJobsiteName } from '.
 import { PhotoUpload } from '../components/PhotoUpload.jsx';
 import { SmithAvatar } from '../components/SmithAvatar.jsx';
 import { ResumeImportWizard } from '../components/ResumeImportWizard.jsx';
+import { VisibilityCard } from '../components/VisibilityCard.jsx';
 
 const TONES = ['wood', 'rust', 'steel', 'brick', 'sage', 'sand', 'slate', 'cream'];
 const COVER_KINDS = ['frame', 'wood', 'concrete', 'roof', 'brick', 'crew', 'workshop', 'kitchen', 'tile', 'blueprint', 'sky', 'steel'];
@@ -139,6 +140,11 @@ export function EditProfilePage() {
             onComplete={handleSaved}
           />
         )}
+
+        <VisibilityCard
+          visibility={profile.visibility}
+          onChange={(v) => setProfile(p => p ? { ...p, visibility: v } : p)}
+        />
 
         <div style={{
           display: 'flex', gap: 28, marginTop: 18, marginBottom: 24,

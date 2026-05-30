@@ -20,6 +20,7 @@ import { q, tx } from '../db.js';
 import { requireAuth } from '../middleware.js';
 import { broadcastToUser } from './messages-ws.js';
 import { keysToUrls } from '../storage.js';
+import { notifyInquirerOfTargetReply } from '../hire-me.js';
 
 const router = Router();
 
@@ -299,6 +300,17 @@ router.post('/threads/:id/messages', requireAuth, async (req, res) => {
         [peerId, req.userId, JSON.stringify({ thread_id: threadId, preview: body.slice(0, 120) })]
       );
     } catch { /* notifications nice-to-have, not a hard dependency */ }
+  }
+
+  // Hire Me hook: if this thread has a hire_me_inquiries row, the inquirer
+  // (no Smith account) is on the other side. Mint a fresh magic-link token
+  // + email it. notifyInquirerOfTargetReply is fire-and-forget — never
+  // throws, returns immediately on non-HireMe threads.
+  if (!peerId) {
+    const replierName = req.user
+      ? `${req.user.first_name} ${req.user.last_name}`.trim()
+      : 'A Smith member';
+    notifyInquirerOfTargetReply(threadId, body, replierName).catch(() => {});
   }
 
   res.status(201).json({

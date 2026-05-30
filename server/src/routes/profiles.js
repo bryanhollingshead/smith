@@ -22,6 +22,7 @@ import { deleteDocFile } from './credential-docs.js';
 import { publicUrl } from '../storage.js';
 import { parseResumeBuffer } from '../resume-parse.js';
 import { recomputeMatchesForUserAsync } from '../jobs/match.js';
+import { generateUniqueSlug } from '../slug.js';
 
 const router = Router();
 
@@ -56,7 +57,8 @@ export async function loadProfile(userId, viewerId) {
             union_name, union_member_since, apprentice_hours, apprentice_required, apprentice_status,
             insurance_carrier, insurance_limit, insurance_verified,
             insurance_doc_url, insurance_doc_mime, insurance_share_public,
-            onboarding_step, onboarding_done
+            onboarding_step, onboarding_done,
+            is_public, public_slug
        FROM users WHERE id = $1`,
     [userId]
   );
@@ -222,6 +224,10 @@ export async function loadProfile(userId, viewerId) {
     onboarding: {
       step: u.onboarding_step,
       done: u.onboarding_done,
+    },
+    visibility: {
+      is_public: !!u.is_public,
+      public_slug: u.public_slug || null,
     },
     trades: trades.rows,
     // Patch C: Public viewers only see licenses that have an uploaded doc.
@@ -507,6 +513,43 @@ router.get('/:id/skills/:sid/endorsers', requireAuth, async (req, res) => {
       created_at: r.created_at,
     })),
   });
+});
+
+// ════════════════════════════════════════════════════════════════════════
+// VISIBILITY / PUBLIC SLUG (Jobs module — phase 5)
+// ════════════════════════════════════════════════════════════════════════
+//
+// PATCH /api/profiles/me/visibility
+//   Body: { is_public: bool }
+//
+// First opt-in (is_public flips TRUE while public_slug IS NULL) generates a
+// unique `first-last-####` slug. Opt-out doesn't drop the slug — keeping it
+// around means re-enabling later doesn't break any external links the user
+// already shared.
+router.patch('/me/visibility', requireAuth, async (req, res) => {
+  const { is_public } = req.body || {};
+  if (typeof is_public !== 'boolean') {
+    return res.status(400).json({ error: 'is_public (boolean) required' });
+  }
+
+  // Load name + current slug so we know whether to generate one.
+  const { rows } = await q(
+    `SELECT first_name, last_name, public_slug FROM users WHERE id = $1`,
+    [req.userId]
+  );
+  if (!rows.length) return res.status(404).json({ error: 'Not found' });
+  const cur = rows[0];
+
+  let slug = cur.public_slug;
+  if (is_public && !slug) {
+    slug = await generateUniqueSlug(cur.first_name, cur.last_name);
+  }
+
+  await q(
+    `UPDATE users SET is_public = $1, public_slug = $2 WHERE id = $3`,
+    [is_public, slug, req.userId]
+  );
+  res.json({ visibility: { is_public, public_slug: slug } });
 });
 
 // ════════════════════════════════════════════════════════════════════════

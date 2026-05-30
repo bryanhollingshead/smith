@@ -23,6 +23,9 @@ import { AlertsPage } from './pages/Alerts.jsx';
 import { NewsPage } from './pages/News.jsx';
 import { NewsSavedPage } from './pages/NewsSaved.jsx';
 import { JobsPage } from './pages/Jobs.jsx';
+import { PublicProfilePage } from './pages/PublicProfile.jsx';
+import { MagicLinkReplyPage } from './pages/MagicLinkReply.jsx';
+import { InquiriesPage } from './pages/Inquiries.jsx';
 import { AdminNewsPage } from './pages/AdminNews.jsx';
 import { MessagesPage } from './pages/Messages.jsx';
 import { MessagesProvider } from './lib/MessagesContext.jsx';
@@ -53,6 +56,13 @@ export function App() {
     if (path === '/auth/forgot')  return <ForgotPasswordPage/>;
     if (path === '/auth/reset')   return <ResetPasswordPage/>;
     if (path === '/auth/signin')  return <SignInPage/>;
+    // Phase 5: public profile + magic-link reply pages are reachable without auth.
+    const slugMatchPub = match('/profile/:slug', path);
+    if (slugMatchPub && !/^\d+$/.test(slugMatchPub.slug)) {
+      return <PublicProfilePage slug={slugMatchPub.slug}/>;
+    }
+    const tokenMatchPub = match('/h/:token', path);
+    if (tokenMatchPub) return <MagicLinkReplyPage token={tokenMatchPub.token}/>;
     // Default: marketing landing page. No redirect — visitors see Smith
     // before being asked to sign in.
     return <LandingPage/>;
@@ -71,17 +81,26 @@ export function App() {
         if (path === '/' || path === '/feed') return <FeedPage/>;
         if (path === '/profile') return <ProfilePage/>;
         if (path === '/profile/edit') return <EditProfilePage/>;
+        // Phase 5 routing: numeric → authed profile by id; slug → public render.
         const profIdMatch = match('/profile/:id', path);
-        if (profIdMatch) return <ProfilePage userId={parseInt(profIdMatch.id, 10)}/>;
+        if (profIdMatch) {
+          if (/^\d+$/.test(profIdMatch.id)) {
+            return <ProfilePage userId={parseInt(profIdMatch.id, 10)}/>;
+          }
+          return <PublicProfilePage slug={profIdMatch.id}/>;
+        }
         if (path === '/network') return <NetworkPage/>;
         if (path === '/alerts') return <AlertsPage/>;
         if (path === '/news') return <NewsPage/>;
         if (path === '/news/saved') return <NewsSavedPage/>;
         if (path === '/jobs') return <JobsPage/>;
+        if (path === '/inquiries') return <InquiriesPage/>;
         if (path === '/admin/news') return <AdminNewsPage/>;
         if (path === '/messages') return <MessagesPage/>;
         const msgMatch = match('/messages/:id', path);
         if (msgMatch) return <MessagesPage threadIdParam={msgMatch.id}/>;
+        const tokenMatch = match('/h/:token', path);
+        if (tokenMatch) return <MagicLinkReplyPage token={tokenMatch.token}/>;
 
         // Hitting an auth page while signed in: bounce to /feed.
         if (path.startsWith('/auth/')) {

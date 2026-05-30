@@ -4,7 +4,7 @@ A durable record of decisions made, work shipped, and what's still open.
 Paste this at the start of a session so Claude is caught up in 30 seconds.
 Update it at the end of each session.
 
-**Last updated:** 2026-05-29 (Jobs module phase 4 — assisted apply review-before-send shipped)
+**Last updated:** 2026-05-29 (Jobs module COMPLETE — phase 5 public profiles + Hire Me shipped)
 **Live URL:** https://smith-h86n.onrender.com
 **Repo:** github.com/bryanhollingshead/smith
 **Sole dev:** Bryan Hollingshead (product background)
@@ -13,6 +13,147 @@ Update it at the end of each session.
 ---
 
 ## ✅ Done — recent wins (in roughly reverse chronological order)
+
+### Jobs module — phase 5 shipped: public profiles + Hire Me (2026-05-29) — **MODULE COMPLETE**
+Fifth and final phase of the Jobs module. Closes the loop: Apply was the
+outbound direction (tradesman → job), Hire Me is the inbound counterpart
+(work → tradesman). Both route through the profile — both reward a
+complete one.
+
+**Migration 012 — five schema additions:**
+- `users.is_public` (BOOLEAN, default FALSE — opt-in only, per locked decision)
+- `users.public_slug` (TEXT, UNIQUE via partial index on non-NULL rows)
+- `messages.sender_id` → NULL-able + new `messages.sender_name_override TEXT`.
+  This is the load-bearing trick that lets inquirer-side messages live in a
+  normal `message_threads` row without a Smith user account — the target's
+  existing /api/messages UI Just Works for the conversation side.
+- `hire_me_inquiries` — structured intake (name/email/phone + structure_type/
+  job_type/location/timeline/message), links to a `message_thread_id`, has a
+  `status` enum ('new'|'replied'|'archived'|'spam'), `is_connection_of`
+  denormalized at insert for inbox prioritization, `ip` for abuse tracking.
+- `hire_me_tokens` — magic-link replies. (target_thread_id, inquirer_email,
+  token UNIQUE, expires_at, used_at). One row per email Smith sends to the
+  inquirer; single-use on REPLY (GET-only view doesn't burn it).
+- pg_trgm extension + partial GIN trigram index on
+  `LOWER(first_name||last_name||headline||location)` WHERE is_public, for
+  fast `LIKE '%query%'` public search.
+
+**Slug generation (`server/src/slug.js`):**
+- `first-last-####` shape (always has letters + hyphen — disambiguates from
+  numeric ids in `/profile/<param>` routing without a DB lookup).
+- 12 retries on suffix collision then falls back to 8-digit suffix.
+- `newMagicToken()` produces base64url 32-char tokens (~190 bits).
+
+**Backend endpoints:**
+- `PATCH /api/profiles/me/visibility`     auth — opt-in/out; first opt-in
+  generates slug. Opt-out preserves the slug so re-enabling later doesn't
+  break shared links.
+- `GET  /api/public/profiles/:slug`       NO auth — returns scrubbed profile
+  (email + onboarding stripped on top of loadProfile's visitor defaults).
+- `GET  /api/public/search?q=&trade=&location=`  NO auth — trigram search.
+- `POST /api/public/hire-me/:slug`        NO auth — rate-limited per IP
+  (5 / 10 min, in-memory bucket — move to Redis when prod justifies).
+  Creates inquiry + thread + initial message (sender_id NULL, name override)
+  + notification. `is_connection_of` set if inquirer email matches a user
+  the target is connected to. Also fires a target-side email if the target
+  has an email on file.
+- `GET  /api/public/hire-me/thread/:token`         NO auth — load thread view.
+- `POST /api/public/hire-me/thread/:token/reply`   NO auth — single-use.
+- `GET  /api/hire-me/inbox`               auth — list inquiries, prioritized
+  by (status=new DESC, is_connection_of DESC, created_at DESC), with per-
+  status counts for the header.
+- `GET  /api/hire-me/inbox/:id`           auth — single inquiry.
+- `PATCH /api/hire-me/:id`                auth — status update.
+
+**Magic-link integration (`server/src/hire-me.js`):**
+- `notifyInquirerOfTargetReply(threadId, body, replierName)` — hooked into
+  `POST /api/messages/threads/:id/messages` as fire-and-forget after the
+  insert. Detects Hire Me threads via `hire_me_inquiries.message_thread_id`,
+  mints a fresh `hire_me_tokens` row (7-day TTL), emails the inquirer with
+  `/h/<token>`. First reply flips inquiry status 'new' → 'replied'.
+- Reuses existing `mailer.js` (`sendMockEmail` always writes mock_emails +
+  tries Resend) — no new email infra.
+
+**Frontend:**
+- `components/VisibilityCard.jsx` — toggle on Edit Profile. Shows current
+  state + public URL with Copy + View buttons.
+- `pages/PublicProfile.jsx` — `/profile/:slug` reachable signed-out.
+  Custom slim header with cover/avatar/headline/location/trades + "Hire
+  {first}" CTA (or "Your public profile" if you're viewing your own). Reuses
+  AboutSection / FeaturedSection / CompaniesSection / CredentialsSection
+  from ProfileSections with `isMe={false}` — owner-only affordances stay
+  hidden via existing logic. Minimal `PublicChrome` instead of TopNav
+  (avoids MessagesProvider context, doesn't require auth).
+- `components/HireMeModal.jsx` — structured intake using `job-types.js`
+  STRUCTURE_TYPES + JOB_TYPE_CATEGORIES (full vocab — same as jobsite form).
+  Required: name, email, message. Done stage tells the inquirer to watch
+  their email.
+- `pages/MagicLinkReply.jsx` — `/h/:token` reachable signed-out. Loads
+  thread (history + inquiry summary), one-shot reply form, single-use
+  enforcement (server-side; UI shows "already used" banner if so). Sign-up
+  CTA at the bottom — this IS the warm-signup funnel the journal called out.
+- `pages/Inquiries.jsx` — `/inquiries` authed inbox. Filters
+  (All/New/Replied/Archived) with counts. Cards show structured chips +
+  message body + Mark spam / Archive / Open conversation → buttons.
+- App.jsx routing disambiguates `/profile/:param`:
+  - `^\d+$` → numeric id (existing authed view)
+  - else → slug (PublicProfilePage, works signed-in and signed-out)
+- TopNav: new "Inquiries" entry (hardhat icon, between Jobs and News).
+
+**Verified end-to-end (server, curl):**
+- PATCH /me/visibility (opt-in) → slug `marcus-whitfield-9344` generated.
+- GET /public/profiles/marcus-whitfield-9344 → loads without auth, email
+  correctly scrubbed (`email exposed? false`).
+- GET /public/search?q=marcus → finds Marcus via trigram index.
+- POST /public/hire-me/<slug> → inquiry id 1, thread 1, message 1 created,
+  notification fired, target email queued.
+- GET /hire-me/inbox (as Marcus) → 1 new inquiry, structured fields intact.
+- POST /messages/threads/1/messages (Marcus replies) → magic-link token
+  minted (`8EaU2Fl…`), email queued to inquirer with subject "Marcus
+  Whitfield replied about Kitchen remodel".
+- GET /public/hire-me/thread/<token> → returns both messages with correct
+  attribution (TARGET vs INQUIRER labels).
+- POST /public/hire-me/thread/<token>/reply → ok.
+- Same token retried → 410 "Link already used".
+- mock_emails trail: 2 emails (target notify + inquirer reply link).
+- Client `vite build` clean (416 KB / 109 KB gzip — +26 KB over phase 4).
+
+**NOT verified:** browser click-through of the public profile, Hire Me
+modal, magic-link page, or Inquiries inbox. Builds + API contracts match.
+
+**Default behavior in prod:** users are NOT public by default. Going public
+is one click on Edit Profile. The Hire Me button on a public profile works
+for any visitor — Smith account or not. Magic-link delivery depends on the
+Resend Path A constraint (real delivery only to bryan.hollingshead@gmail.com
+until Resend Path B + smith.app domain are live).
+
+**Anti-spam this build:**
+- IP-based rate limit (5 inquiries / 10 min, in-memory bucket).
+- Required inquirer name + email + message (no captcha yet).
+- Slug regex gate prevents path traversal in public endpoints.
+
+If abuse appears: add a hCaptcha / Cloudflare Turnstile checkbox on the
+Hire Me form, and tighten the rate limit. Both are quick swaps.
+
+**Jobs module recap — what shipped across all 5 phases:**
+1. Resume PDF import + completeness card (Haiku 4.5 extraction).
+2. Adzuna driver + ingestion scheduler + admin source registry.
+3. Matching algorithm + ranked feed UI + save/dismiss.
+4. Assisted apply (Sonnet 4.6) + review-before-send modal + applied status.
+5. Public profiles + Hire Me inbound flow + magic-link replies.
+
+**Trusted Auto-Send (phase 6) is the only piece deferred** — the journal
+entry from 05-29 is the design; `application_drafts` schema already
+supports it (only `status='auto_sent'` value + an opt-in templates table
+get added later, no schema rework).
+
+**What still needs setup outside the code:**
+- Adzuna creds (`ADZUNA_APP_ID`, `ADZUNA_APP_KEY`) — until set, the source
+  is disabled and the Jobs feed shows the empty state.
+- Anthropic key (`ANTHROPIC_API_KEY`) — until set, resume parsing 503s and
+  assisted-apply falls through to the deterministic template.
+- Resend Path B + smith.app domain — until live, Hire Me magic-link
+  emails only deliver to bryan.hollingshead@gmail.com (Path A).
 
 ### Jobs module — phase 4 shipped: assisted apply (review-before-send) (2026-05-29)
 Fourth of the 5 planned phases. **Foundation for Trusted Auto-Send** (phase 6
