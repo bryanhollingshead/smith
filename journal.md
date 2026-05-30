@@ -4,7 +4,7 @@ A durable record of decisions made, work shipped, and what's still open.
 Paste this at the start of a session so Claude is caught up in 30 seconds.
 Update it at the end of each session.
 
-**Last updated:** 2026-05-29 (Jobs module COMPLETE — phase 5 public profiles + Hire Me shipped)
+**Last updated:** 2026-05-30 (Browser verification of Jobs module + race fix)
 **Live URL:** https://smith-h86n.onrender.com
 **Repo:** github.com/bryanhollingshead/smith
 **Sole dev:** Bryan Hollingshead (product background)
@@ -13,6 +13,71 @@ Update it at the end of each session.
 ---
 
 ## ✅ Done — recent wins (in roughly reverse chronological order)
+
+### Browser verification of the Jobs module + apply-draft race fix (2026-05-30)
+Drove all 10 phase-1→5 UI flows end-to-end in a headless Chromium via
+Playwright (cold-start; no existing verifier skill). 19 screenshots in
+`/tmp/smith-verify/shots/`, runner at `/tmp/smith-verify/verify.mjs`.
+
+**Found + fixed mid-verify (commit `a058063`):** `POST /api/jobs/:id/draft`
+crashed the server the first time it was hit from the browser. Cause: React
+StrictMode double-mounts the modal in dev → `useEffect` fires twice →
+two concurrent POSTs both pass the existing-row check, both INSERT, the
+second hits the UNIQUE `(user_id, job_id)` constraint, route had no try/
+catch → unhandled rejection → Node process exit. Fix: switched the INSERT
+to `ON CONFLICT (user_id, job_id) DO NOTHING RETURNING id` with a SELECT
+fallback when the insert returns 0 rows. **In prod the StrictMode trigger
+is gone (only dev double-mounts), but the race is still real** for rapid
+double-clicks, multi-tab, or any client retry — worth the fix regardless.
+
+**All 10 flows pass end-to-end after the fix:**
+1. ✅ Sign in (Marcus) → `/#/feed`.
+2. ⚠️ Profile completeness card NOT visible. Correct behavior — Marcus's
+   seed has all 4 unlocks `done:true`, and `ProfileCompletenessCard`
+   hides itself when `unlocks.every(u => u.done)`. To see it rendered,
+   need a less-complete profile.
+3. ✅ Edit Profile shows resume banner + visibility card side by side.
+4. ✅ Resume wizard upload stage opens cleanly.
+5. ✅ "Go public" → API minted slug `marcus-whitfield-5988`. Public URL
+   surfaced on card with Copy / View buttons.
+6. ✅ Jobs feed renders 8 ranked cards (Master Carpenter top at score 37
+   with Direct contact badge; Davis-Bacon row tagged Prevailing wage).
+7. ✅ Apply with Smith modal opens with template-fallback banner
+   (no `ANTHROPIC_API_KEY` set locally), recipient pre-filled, body
+   editable. Send → status flipped, `✓ Applied` badge on card, mock_emails
+   row recorded.
+8. ✅ Prevailing wage filter → exactly 1 card.
+9. ✅ Public profile in incognito (signed-out) renders with "Hire Marcus"
+   CTA and minimal public chrome (Sign in / Build your profile).
+10. ✅ Hire Me modal fills + submits → "Inquiry sent" done state.
+11. ✅ Inquiries inbox shows Sam Builder card with 4 chips, "new" badge,
+    proper counts (All 1, New 1).
+12. ✅ Open conversation → `/messages/3` thread renders the structured
+    intake as the first message.
+13. ✅ Marcus's reply automatically minted a magic-link token + queued
+    the inquirer email.
+14. ✅ `/h/:token` in a third incognito context renders the conversation
+    with proper attribution (You / Marcus Whitfield) + reply form +
+    sign-up CTA.
+15. ✅ Reply submitted → token burned. Reload → "already replied via this
+    link" banner. **Single-use enforcement holds.**
+
+**No console / page errors** captured across all three browser contexts.
+Screenshots at `/tmp/smith-verify/shots/` — `06-apply-modal.png` is the
+most representative end-to-end frame (Apply with Smith review-before-send
+with template draft + recipient pre-fill).
+
+**Smaller observations (worth flagging, not blocking):**
+- Hire Me modal's "Send inquiry" button has a subtle busy state — easy
+  to miss on slow connections. The `busy={busy}` disable + dim does
+  fire, just visually muted.
+- Public profile chrome shows no "Back to feed" button when the visitor
+  is signed-out. Correct (visitor has no feed) but means a signed-in
+  user viewing a peer's public profile uses the browser back button.
+- Completeness card auto-hide makes it invisible for fully-populated
+  profiles. Probably correct (it's a nudge, not a dashboard), but it'd
+  be the only way to discover the unlocks list — no other surface
+  enumerates them.
 
 ### Jobs module — phase 5 shipped: public profiles + Hire Me (2026-05-29) — **MODULE COMPLETE**
 Fifth and final phase of the Jobs module. Closes the loop: Apply was the
