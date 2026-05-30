@@ -100,14 +100,25 @@ router.post('/jobs/:id/draft', requireAuth, async (req, res) => {
   const { body, model } = await draftApplicationMessage(profile, job);
   const channelInfo = defaultChannelFor(job);
 
+  // INSERT … ON CONFLICT DO NOTHING handles the race when two concurrent
+  // requests both pass the existing-check above (React StrictMode double-mounts
+  // a component → useEffect fires twice; whichever request loses the race
+  // would crash the server with a UNIQUE violation without this clause).
   const ins = await q(
     `INSERT INTO application_drafts
        (user_id, job_id, generated_body, channel, recipient_email, recipient_phone, llm_model)
        VALUES ($1, $2, $3, $4, $5, $6, $7)
-     RETURNING *`,
+     ON CONFLICT (user_id, job_id) DO NOTHING
+     RETURNING id`,
     [req.userId, jobId, body, channelInfo.channel,
      channelInfo.recipient_email, channelInfo.recipient_phone, model]
   );
+
+  // If the INSERT was a no-op (concurrent peer beat us), look up the row.
+  const draftId = ins.rows[0]?.id ?? (await q(
+    `SELECT id FROM application_drafts WHERE user_id = $1 AND job_id = $2`,
+    [req.userId, jobId]
+  )).rows[0]?.id;
 
   // Re-fetch with job join so the response shape matches the existing-draft path.
   const full = await q(
@@ -116,7 +127,7 @@ router.post('/jobs/:id/draft', requireAuth, async (req, res) => {
             j.contact_email AS job_contact_email, j.contact_phone AS job_contact_phone
        FROM application_drafts a JOIN jobs j ON j.id = a.job_id
       WHERE a.id = $1`,
-    [ins.rows[0].id]
+    [draftId]
   );
   res.status(201).json({ draft: shapeDraft(full.rows[0]) });
 });
