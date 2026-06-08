@@ -1,13 +1,25 @@
 // Smith — Minimal hash-based router
 // Hash routing avoids needing server-side rewrites and keeps deps zero.
 // Routes look like #/feed, #/profile, #/profile/123, #/auth/signin, etc.
+//
+// Clean-URL entry: the server SPA fallback serves index.html for any non-/api
+// path, and some shareable links (notably /profile/:slug from VisibilityCard)
+// are generated without a hash. When the app boots at such a URL we promote
+// the pathname into the hash so the rest of the routing tree just works.
 
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
 
 const RouterCtx = createContext({ path: '/', params: {}, navigate: () => {} });
 
 function parseHash() {
-  const raw = (window.location.hash || '').replace(/^#/, '') || '/';
+  let raw = (window.location.hash || '').replace(/^#/, '');
+  // Clean-URL fallback: no hash, but the server served us at /something —
+  // treat the pathname as the route. Lets /profile/:slug (shared link)
+  // reach the slug-matching branches in App.jsx.
+  if (!raw && window.location.pathname && window.location.pathname !== '/') {
+    raw = window.location.pathname + (window.location.search || '');
+  }
+  raw = raw || '/';
   const [path, qs] = raw.split('?');
   const params = {};
   if (qs) for (const kv of qs.split('&')) {
@@ -18,7 +30,19 @@ function parseHash() {
 }
 
 export function RouterProvider({ children }) {
-  const [{ path, params }, setState] = useState(parseHash());
+  const [{ path, params }, setState] = useState(() => {
+    // Canonicalize a clean-URL entry to a hash route on boot. Without this,
+    // a visit to /profile/:slug followed by navigate('/feed') would leave
+    // the URL as /profile/:slug#/feed (hash changes, pathname doesn't).
+    if (typeof window !== 'undefined'
+        && !window.location.hash
+        && window.location.pathname
+        && window.location.pathname !== '/') {
+      const target = window.location.pathname + (window.location.search || '');
+      window.history.replaceState(null, '', '/#' + target);
+    }
+    return parseHash();
+  });
 
   useEffect(() => {
     const onHash = () => setState(parseHash());
