@@ -925,6 +925,68 @@ A handful of existing accounts representing smith deities (Hephaestus, Vulcan, P
 
 ---
 
+## 📚 Context-to-write — unlocks deeper roadmap work (2026-06-11)
+
+Working agreement coming out of phase 6: the handoff-bundle pattern (per-flow
+README + JSX prototypes) is doing the heavy lifting for individual screens and
+should keep being the unit of delivery. What slows me down across flows is
+**cross-flow context** — the stuff that's true everywhere but isn't written
+down anywhere. Four short docs would unblock me for project management,
+bidding, and project initiation work without changing how we work today.
+
+**Length target for each: 1-2 pages. Prose-heavy beats bullet-heavy. The
+homeowner-handoff README's ~150 lines was the sweet spot — long enough to
+cover ambiguities, short enough that I read every word.**
+
+Priority order (do them in this order; later ones depend on earlier ones):
+
+1. **`docs/domain-model.md` — entity glossary + relationships.**
+   Project management is about to introduce project, jobsite, room, bid,
+   milestone, task, decision, change-order, punch-item, document. I don't
+   currently know which Smith treats as first-class vs derived vs nope.
+   The homes-vs-projects-vs-jobsites overlap during phase 6 was the kind
+   of thing this catches. Flat list, one-line definition each, "X has many
+   Y" relationships, and a tag per entity for "exists today" vs "planned."
+   Helps me avoid inventing names that collide with what you mean.
+
+2. **`docs/roles-and-permissions.md` — role × capability table.**
+   Homeowner, solo trade, sub, GC — who can invite whom, who sees budgets,
+   who posts in feeds, who edits a home/project, who can leave a project,
+   what happens to data when they do. ProjectShell already names gc/solo/
+   sub; we just added homeowner. A canonical view lets me make permission
+   calls without round-tripping. Doesn't need to be exhaustive — just the
+   ones we know.
+
+3. **`docs/product-principles.md` — what Smith is, isn't, defers.**
+   "We're for the people who build. We don't gamify. We don't compete with
+   LinkedIn on jobs-board mechanics. We defer X." When a design is
+   ambiguous, this is what tells me whether to lean toward the
+   construction-management answer or the social-network answer. Right now
+   I infer from journal entries + Landing copy, which works but leaks.
+
+4. **`docs/integration-roadmap.md` — sequence of external services.**
+   I've already stubbed Google Places, ATTOM, Street View, Google OAuth,
+   and there's still Resend Path B pending. Knowing roughly when each
+   lands ("Resend in two weeks, OAuth Q3, Places when we expand outside
+   SLC") lets me invest the right amount in each stub vs leave room for
+   the real wire-up.
+
+**Things explicitly NOT worth writing:**
+- Architecture docs / "how the codebase is structured" — readable from code.
+- Style guides for components or coding conventions — discoverable from
+  existing files.
+- API documentation — `openapi.yaml` + the route files self-document.
+
+**Instruction for future-Claude reading the journal:** if Bryan asks you
+to do project management, bidding, or project-initiation work and ANY of
+docs 1-4 above are still missing, push back gently before you start. Don't
+silently invent the missing context — flag it, propose what you'd need,
+and offer to draft the doc together. The cost of a 20-minute alignment
+conversation is far less than the cost of building three flows on the
+wrong domain model.
+
+---
+
 ## 🔴 Blocking — fix soon
 
 ### R2 SECRET — 65 chars instead of 64
