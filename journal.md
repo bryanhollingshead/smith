@@ -1010,6 +1010,59 @@ psql $DATABASE_URL -c "UPDATE users SET email_verified = TRUE WHERE email = 'the
 
 ## ⏸ Open — when ready (no urgency)
 
+### Wire real address autocomplete + property records (priority — Bryan wants this next)
+**Status (2026-06-11):** Stubbed during phase 6 — `STUB_PLACES` only returns
+three SLC matches around 847 E 9th Ave, so any real address (Bryan's test
+case: `5614 S Laurelwood`) returns no suggestions. Bryan asked for the
+real thing wired next: "it will be magical."
+
+**Vendor decisions (Bryan confirmed wants real):**
+- **Autocomplete:** Google Places Autocomplete (New). Best UX, session-token
+  pricing keeps per-lookup cost down (~$0.017/session at last check —
+  verify on the GCP billing page before wiring). $300 free credit on new
+  GCP accounts covers months of soft-launch volume. Server-side proxy so
+  the API key never reaches the browser.
+- **Property records: ATTOM** (over Estated). ATTOM is the industry-grade
+  pick — used originally by Zillow/Redfin, comprehensive coverage, stable.
+  Pricier per call but the safer bet. Estated was the budget alternative
+  but Black Knight/ICE acquired them in 2023 and the API's long-term fate
+  is uncertain; not worth integrating against a product that may sunset.
+  ATTOM offers a free trial — sign up first, verify SLC suburb coverage
+  with the Laurelwood address before committing.
+- **Skipped:** CoreLogic (enterprise sales only), HouseCanary (valuation-
+  focused, overkill), Rentcast/Realie (newer, less coverage), direct
+  county-assessor scraping (per-county brittle).
+
+**Implementation seams (already clean in `server/src/routes/homes.js`):**
+- Replace `STUB_PLACES` + the `/places/autocomplete` handler with a
+  server-side proxy to Google Places. Use session tokens (passed through
+  from the client) so all keystrokes + the final Place Details call bill
+  as one session. Map the Place Details response into the same shape the
+  client already consumes (`{ place_id, main, sub, _components }`).
+- Replace `STUB_RECORDS` + the `/places/records` handler with an ATTOM
+  call keyed by lat/lon (Places returns coords) or canonical address.
+  Map ATTOM's response into our existing `facts_source_attribution` +
+  fact-column shape; the client doesn't need to change.
+- Add a `home_lookups_cache` table or in-memory LRU keyed by place_id →
+  both APIs charge per call and re-querying the same home wastes money.
+  TTL maybe 30 days for facts (records don't change often), 24h for
+  geocoding.
+- API keys live in `server/.env` (`GOOGLE_PLACES_API_KEY`, `ATTOM_API_KEY`)
+  — already gitignored. Set the same vars in Render env via the dashboard
+  (mark `sync: false` in `render.yaml` so they don't get overwritten).
+
+**What Bryan needs to provide before this lands:**
+- GCP project + Google Places API key (enable the Places API + set up
+  billing; the free credit covers soft launch but billing must be enabled
+  even to use the free tier).
+- ATTOM free-trial signup → API key.
+- Confirm the Laurelwood address resolves cleanly in ATTOM's coverage
+  before going further (avoids the failure mode of wiring everything then
+  discovering the address isn't in the dataset).
+
+Estimated ~2 hours implementation once keys are in hand, plus the
+verification probes against real addresses.
+
 ### Domain registration — smith.app (planned this week)
 - Decision: smith.app via Cloudflare Registrar (already have R2 there, keeps DNS clean)
 - ~$15/yr
