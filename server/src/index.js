@@ -37,6 +37,7 @@ import jobsRouter from './routes/jobs.js';
 import applicationsRouter from './routes/applications.js';
 import publicRouter from './routes/public.js';
 import hireMeRouter from './routes/hire-me.js';
+import homesRouter from './routes/homes.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
@@ -78,6 +79,7 @@ app.use('/api', jobsRouter);          // /admin/jobs/*  (phase 2); /jobs/* feed 
 app.use('/api', applicationsRouter);  // /jobs/:id/draft, /applications/*  (phase 4)
 app.use('/api/public', publicRouter); // public profile + search + hire-me submit + magic-link reply (phase 5)
 app.use('/api', hireMeRouter);        // /hire-me/inbox, /hire-me/:id  (phase 5, authed)
+app.use('/api', homesRouter);         // /places/autocomplete (public), /homes/* (authed)  (phase 6, homeowner entry)
 
 // ── Static SPA serving (production only) ────────────────────────────────
 // The React build lands at ../../client/dist relative to this file. We:

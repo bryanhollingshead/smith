@@ -38,10 +38,10 @@ export function AuthProvider({ children }) {
     }
   };
 
-  const signUp = async ({ email, password, first_name, last_name }) => {
+  const signUp = async ({ email, password, first_name, last_name, role }) => {
     setLoading(true);
     try {
-      const data = await api.post('/auth/signup', { email, password, first_name, last_name });
+      const data = await api.post('/auth/signup', { email, password, first_name, last_name, role });
       auth.set(data.token);
       setUser(data.user);
       return data.user;

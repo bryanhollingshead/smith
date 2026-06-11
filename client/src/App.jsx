@@ -29,6 +29,10 @@ import { InquiriesPage } from './pages/Inquiries.jsx';
 import { AdminNewsPage } from './pages/AdminNews.jsx';
 import { MessagesPage } from './pages/Messages.jsx';
 import { MessagesProvider } from './lib/MessagesContext.jsx';
+import { HireMeEntryPage } from './pages/HireMeEntry.jsx';
+import { HomeownerSignupPage } from './pages/HomeownerSignup.jsx';
+import { AddressFoundPage } from './pages/AddressFound.jsx';
+import { SeedDashboardPage } from './pages/SeedDashboard.jsx';
 
 export function App() {
   const { user, booted } = useAuth();
@@ -52,15 +56,22 @@ export function App() {
   // before signing out) is treated as a Landing visit too — no forced
   // redirect, since they're not actually trying to authenticate.
   if (!user) {
-    if (path === '/auth/signup')  return <SignUpPage/>;
-    if (path === '/auth/forgot')  return <ForgotPasswordPage/>;
-    if (path === '/auth/reset')   return <ResetPasswordPage/>;
-    if (path === '/auth/signin')  return <SignInPage/>;
+    if (path === '/auth/signup')    return <SignUpPage/>;
+    if (path === '/auth/forgot')    return <ForgotPasswordPage/>;
+    if (path === '/auth/reset')     return <ResetPasswordPage/>;
+    if (path === '/auth/signin')    return <SignInPage/>;
+    // Phase 6: homeowner self-serve signup is also publicly reachable.
+    if (path === '/auth/homeowner') return <HomeownerSignupPage/>;
     // Phase 5: public profile + magic-link reply pages are reachable without auth.
     const slugMatchPub = match('/profile/:slug', path);
     if (slugMatchPub && !/^\d+$/.test(slugMatchPub.slug)) {
       return <PublicProfilePage slug={slugMatchPub.slug}/>;
     }
+    // Phase 6: hire-me entry (homeowner-acquisition path #1) is public — it
+    // collects an address then routes to /auth/homeowner with the address
+    // pre-filled.
+    const hireMatch = match('/hire/:slug', path);
+    if (hireMatch) return <HireMeEntryPage slug={hireMatch.slug}/>;
     const tokenMatchPub = match('/h/:token', path);
     if (tokenMatchPub) return <MagicLinkReplyPage token={tokenMatchPub.token}/>;
     // Default: marketing landing page. No redirect — visitors see Smith
@@ -99,6 +110,16 @@ export function App() {
         if (path === '/messages') return <MessagesPage/>;
         const msgMatch = match('/messages/:id', path);
         if (msgMatch) return <MessagesPage threadIdParam={msgMatch.id}/>;
+        // Phase 6: homeowner seed-home flow — authed-only (post-signup).
+        const homeConfirmMatch = match('/home/:id/confirm', path);
+        if (homeConfirmMatch) return <AddressFoundPage id={homeConfirmMatch.id}/>;
+        const homeMatch = match('/home/:id', path);
+        if (homeMatch) return <SeedDashboardPage id={homeMatch.id}/>;
+        // A homeowner who navigates to /hire/:slug while signed in still
+        // belongs in the entry flow — they may want to mint a fresh home
+        // bound to a different pro. Reuses the public component.
+        const hireMatch = match('/hire/:slug', path);
+        if (hireMatch) return <HireMeEntryPage slug={hireMatch.slug}/>;
         const tokenMatch = match('/h/:token', path);
         if (tokenMatch) return <MagicLinkReplyPage token={tokenMatch.token}/>;
 

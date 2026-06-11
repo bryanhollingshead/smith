@@ -4,7 +4,7 @@ A durable record of decisions made, work shipped, and what's still open.
 Paste this at the start of a session so Claude is caught up in 30 seconds.
 Update it at the end of each session.
 
-**Last updated:** 2026-05-30 (Browser verification of Jobs module + race fix)
+**Last updated:** 2026-06-11 (Homeowner entry flows — four screens built + E2E verified locally)
 **Live URL:** https://smith-h86n.onrender.com
 **Repo:** github.com/bryanhollingshead/smith
 **Sole dev:** Bryan Hollingshead (product background)
@@ -13,6 +13,218 @@ Update it at the end of each session.
 ---
 
 ## ✅ Done — recent wins (in roughly reverse chronological order)
+
+### Homeowner entry module — phase 6, four screens shipped (2026-06-11)
+First piece of the homeowner-acquisition funnel. Opens a second front for
+Smith: tradespeople have been the only signup audience until now;
+homeowners get a separate path that mints a "seed home profile" from
+nothing but an address, then drops them onto a sparse-but-real dashboard
+with locked future modules as the carrot. The four screens come from
+`design_handoff_homeowner_entry/` (kept in the repo for reference).
+Branch: not yet committed.
+
+**Migration 013 — two schema additions:**
+- `users.role` TEXT ('tradesperson' default · 'homeowner') with check
+  constraint. Forks the post-signup journey: tradespeople still go
+  through trade-selection onboarding; homeowners skip it
+  (`onboarding_done=TRUE` stamped at signup).
+- `homes` table — owner_user_id, full canonical address, place_id (stub
+  for now), 11 nullable fact columns (year_built / square_feet / beds /
+  baths / lot_acres / stories / last_sold_date+price / roof / heating),
+  facts_source provenance, `entry_source` ('self-serve' | 'hire-me')
+  with optional `pending_pro_slug`, `confirmed_at` to mark the
+  AddressFound moment.
+
+**New `/api/homes` + `/api/places` routes (`server/src/routes/homes.js`):**
+- `GET  /api/places/autocomplete?q=`  — **public**, stubbed Google Places.
+  Three canned matches around 847 E 9th Ave + neighbors. `// TODO: wire
+  Google Places` at the call site.
+- `POST /api/places/records`           — **public**, stubbed ATTOM /
+  Street View. Returns the full fact set for the canonical demo
+  address; sparse coverage for distractor places. `// TODO: wire ATTOM
+  + Street View` markers in the file.
+- `POST /api/homes`                    — authed. Mints from a confirmed
+  place_id + facts override. Idempotent on (owner_user_id, place_id) so
+  React StrictMode double-mounts can't pile up rows.
+- `GET  /api/homes/:id`                — authed, owner-only.
+- `GET  /api/homes/me/primary`         — authed, returns most-recent
+  home; 404 if none.
+- `PATCH /api/homes/:id`               — authed. Inline edits (year /
+  sqft / beds / etc.) + a `confirm: true` sentinel that stamps
+  `confirmed_at`. Editable writes flip `facts_source` to `'user'`.
+
+**Setup progress derivation.** 22 total "details" distributed across the
+six checklist rows (matches the design):
+- Confirm address — 1
+- Basic facts auto-imported — 3 (any of the 11 fact columns populated)
+- Add systems — 5     (post-MVP)
+- Log a project — 3   (post-MVP)
+- Upload photos — 5   (post-MVP)
+- Connect a trade — 5 (post-MVP)
+Seed state from public records → 4/22 = 18% (matches the design's
+display). Derived on the server in `deriveProgress()`; returned as
+`home.progress = { added, total, pct }`.
+
+**Client surface — four pages + one new shared component:**
+- `client/src/components/ProjectShell.jsx` — collapsible left rail
+  (280 ↔ 64 px), project switcher, nav items with `sub` text + badge,
+  role footer (homeowner = blue `#5B7A8A`), header with action slot.
+  Adapted from the handoff's `smith-project-shell.jsx` to use our
+  Icon / Avatar / router. First consumer is the SeedDashboard;
+  tradesperson surfaces will pick this up later.
+- `client/src/components/HomeownerEntry.jsx` — `EntryShell` (two-pane
+  with responsive collapse at ≤900 px), `EntryInput`, `AddressField`
+  (live debounced autocomplete with focus-open dropdown matching the
+  design's first-result-highlighted frame), `LockedModule`,
+  `ChromeWordmark`.
+- `pages/HireMeEntry.jsx`     · `/hire/:slug`        · public.
+- `pages/HomeownerSignup.jsx` · `/auth/homeowner`    · public; copy
+  varies on `?entry_source=hire-me` ("One step before you continue.")
+  vs self-serve ("Claim your home.").
+- `pages/AddressFound.jsx`    · `/home/:id/confirm`  · authed.
+  Imagery band + 4-col facts grid; "Something's off" toggles inline
+  edits, "Yes, this is my home" PATCHes confirm:true + any pending
+  edits in one round-trip.
+- `pages/SeedDashboard.jsx`   · `/home/:id`          · authed.
+  Hero + progress bar derived from server, 6-row checklist, 2×2
+  locked-module grid, right column with inline-editable "From public
+  records" card. "Your first project / Marcus is ready" card only
+  renders when `home.entry_source === 'hire-me'`.
+
+**Routing rewire.** `App.jsx` registers the new paths inside the
+existing public-and-then-authed branches. The PublicProfile "Hire Me"
+button no longer opens `HireMeModal` — it routes to `/hire/:slug` (the
+new flow). HireMeModal remains in the codebase but isn't launched
+anywhere; decision per Bryan: don't support both surfaces yet, may
+revisit later.
+
+**Design tokens added.** `B` + `styles.css` got `dangerSoft` (#fbe8e2),
+`success`/`successSoft` (#7A8A3F · #e9efde), and `homeowner` blue
+(#5B7A8A). The handoff's other tokens already matched ours 1:1.
+
+**Stubbed seams — what NOT to ship as real yet:**
+- Google Places autocomplete (replace `STUB_PLACES`).
+- ATTOM / Estated property records (replace `STUB_RECORDS`).
+- Google Street View Static imagery (keep `Photo kind="frame"` until
+  wired).
+- Google OAuth on the signup screen (alert toast for now).
+- All four locked-module unlock CTAs + the "Describe the work →" button
+  on the hire-me dashboard route to `/todo/*` placeholders pending the
+  next handoff (the post-seed flows: describe-the-work, then bidding,
+  then project initiation).
+
+**Local env note.** Added `REQUIRE_EMAIL_VERIFICATION=false` to
+`server/.env` so signup → confirm → dashboard runs in dev without an
+email-code roundtrip. Matches what `render.yaml` already does in prod.
+
+**E2E verification (Playwright against local Vite + Express):**
+1. ✅ `/hire/marcus-whitfield-5988` → side panel pulls the real pro
+   profile; address picker auto-opens with 847 E 9th Ave highlighted.
+2. ✅ Pick → `/auth/homeowner?…entry_source=hire-me&pro=…`; "One step
+   before you continue." headline appears.
+3. ✅ Fill credentials → `POST /api/auth/signup` 201 with role=homeowner
+   → `POST /api/homes` 201 → `/home/2/confirm`.
+4. ✅ AddressFound renders facts (1924, 2840, 4·2.5, 0.18 ac, etc.).
+5. ✅ Confirm → `PATCH /api/homes/2` 200 → `/home/2` seed dashboard.
+6. ✅ Dashboard shows "Marcus is ready" card + "Describe the work →"
+   button (because entry_source=hire-me).
+7. ✅ Reload — data persisted, dashboard re-renders identically.
+8. ✅ Separate self-serve run: `/auth/homeowner` → submit → confirm →
+   dashboard. "YOUR FIRST PROJECT" card count = 0 (correctly omitted
+   for self-serve).
+9. 🔍 Validation: empty submit → "Pick an address from the
+   suggestions"; password < 12 chars → "Password must be at least 12
+   characters."
+
+Screenshots at `/tmp/smith-verify/homeowner-*.png` (8 frames covering
+both paths).
+
+**Known issues to handle when real providers go in:**
+- **Address pre-fill on hire-me → signup hop:** the URL carries
+  `?address=…&place_id=…`; the signup screen's AddressField fills in
+  with the long pre-filled string and re-fires the autocomplete on it,
+  which doesn't match any stub and returns 0 suggestions. Submit works
+  fine (the pick is already locked in from the URL), but if the user
+  clicks back into the field the dropdown briefly shows empty.
+  Tightening this when Google Places is wired — real autocomplete will
+  return matches for a full address string. Track here so it doesn't
+  get lost.
+- **MessagesProvider scope:** the seed dashboard renders inside
+  `MessagesProvider` (App.jsx wraps the whole authed tree in it), so
+  `/messages/unread-count` + the messaging WS fire on the homeowner
+  dashboard. Probably fine, but homeowners may not want a network
+  notification badge. Worth scoping per-role later.
+
+**Next handoff:** "Describe the work →" (the hire-me follow-on flow),
+then bidding + project initiation. The TODO seams in
+`SeedDashboard.jsx` mark every entry point that needs wiring.
+
+### Public-profile clean URL fix + Hire Me E2E reverified in prod (2026-06-08)
+Shipped a one-file router fix that unblocked the Hire Me flow at the
+shareable URL shape (`/profile/:slug`, no hash), then drove the full
+end-to-end from a fresh unauthenticated browser against prod to
+confirm. Commit `2f4723e`.
+
+**The bug.** Hash routing (`#/feed`, `#/profile/:slug`) is fine inside
+the app, but `VisibilityCard.jsx:21` generates the public share URL as
+`${origin}/profile/${slug}` — clean path, no hash. Server SPA fallback
+served `index.html` correctly, the SPA booted, but `parseHash()` saw an
+empty `window.location.hash` and returned `/`. Signed-out visitors got
+the Landing page; signed-in visitors got the Feed. **App.jsx already
+had the right slug-routing branches (lines 60-63 logged-out, 85-91
+logged-in) — they just never fired because `path` was `/`.**
+
+**The fix (`client/src/lib/router.jsx`).** Two coordinated changes:
+- `parseHash()` falls back to `window.location.pathname` (plus search)
+  when the hash is empty. Drives the existing App.jsx slug matches.
+- `RouterProvider` canonicalizes the URL on boot inside the useState
+  initializer: if hash is empty + pathname ≠ `/`, `history.replaceState`
+  rewrites to `/#<pathname>`. Prevents the ugly `/profile/xyz#/feed`
+  shape after subsequent hash-based navigations.
+
+The change keeps the hash-routing model intact — every other route
+(`/auth/*`, `/jobs`, `/messages/:id`, etc.) is untouched, the canonicalize
+only fires once on boot, and idempotent on repeat. Build is reproducible
+via Vite contenthash → matched the deployed `index-nFj83ioj.js` so
+"new bundle is live" was a curl one-liner.
+
+**E2E reverification (Playwright in `/tmp/smith-verify/`).** Same setup
+shape as the 2026-05-30 verification (fresh `BrowserContext` = no auth)
+but driven against **prod**, not local:
+1. ✅ `GET /profile/bryan-hollingshead-9890` → URL canonicalized to
+   `/#/profile/bryan-hollingshead-9890`. `GET /api/public/profiles/:slug`
+   200 with full profile JSON.
+2. ✅ "Hire Bryan" button visible (PublicChrome shows Sign in / Build
+   your profile — visitor is signed-out).
+3. ✅ Modal opens, all 8 fields fill (name / email / phone / structure /
+   job_type / location / timeline / message).
+4. ✅ Submit → `POST /api/public/hire-me/bryan-hollingshead-9890` → **201
+   `{"ok":true, "inquiry_id":2, …}`**. DoneStage renders: "Inquiry
+   delivered / magic-link email at verify+…@example.com".
+
+**Probes — server-side gates all firing:**
+- 🔍 Bad email format → 400 `Email looks invalid.`
+- 🔍 Slug with whitespace → 400 `Invalid slug` (regex gate on the
+  profile route).
+- 🔍 `GET /api/hire-me/inbox` unauthed → 401 `Missing bearer token`.
+- 🔍 6th submit from same IP inside 10 min → 429 `Too many inquiries
+  from your network.` Rate limiter (`public.js:24` — 5/IP/10min,
+  in-memory) fires as designed.
+
+**Gotcha worth remembering:** the rate-limiter check sits *before*
+input validation (`public.js:135`), so every POST counts — including
+malformed ones. Burned through my probe budget faster than expected.
+Not a bug; useful to know during future manual testing.
+
+**Open gap (small).** The test inquiry landed server-side
+(`inquiry_id: 2`, sender `Verify Bot 2026-06-08T20-18-50-717Z`,
+inquirer email `verify+1780949930717@example.com`), but I didn't
+auth as Bryan to confirm it surfaces in the Inquiries inbox UI.
+Sign in next session and archive/delete it.
+
+**Artifacts:** `/tmp/smith-verify/drive.mjs` (Playwright runner) +
+`01-profile.png` (rendered profile), `02-modal-empty.png`,
+`03-modal-filled.png`, `04-success.png` (inquiry-sent stage).
 
 ### Browser verification of the Jobs module + apply-draft race fix (2026-05-30)
 Drove all 10 phase-1→5 UI flows end-to-end in a headless Chromium via

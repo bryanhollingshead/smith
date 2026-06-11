@@ -15,6 +15,10 @@
   --b-accent-soft: #C8731F1A;
   --b-amber: #B8860B;
   --b-danger: #A33A2A;
+  --b-danger-soft: #fbe8e2;
+  --b-success: #7A8A3F;
+  --b-success-soft: #e9efde;
+  --b-homeowner: #5B7A8A;
 }
 
 * { box-sizing: border-box; }

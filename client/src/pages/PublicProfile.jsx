@@ -16,7 +16,6 @@ import {
 import { SmithAvatar } from '../components/SmithAvatar.jsx';
 import { Photo, SmithLogo } from '../components/Primitives.jsx';
 import { Icon } from '../components/Icon.jsx';
-import { HireMeModal } from '../components/HireMeModal.jsx';
 import { useAuth } from '../lib/AuthContext.jsx';
 import { useRouter } from '../lib/router.jsx';
 
@@ -26,7 +25,10 @@ export function PublicProfilePage({ slug }) {
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [hireOpen, setHireOpen] = useState(false);
+  // The Hire Me button now routes to the homeowner-acquisition entry flow
+  // (/hire/:slug) instead of opening the structured-inquiry modal. The old
+  // modal is preserved in the codebase for non-homeowner inquiry surfaces.
+  const goToHireFlow = () => navigate(`/hire/${slug}`);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -75,7 +77,7 @@ export function PublicProfilePage({ slug }) {
             <PublicProfileHeader
               profile={profile}
               isOwner={isOwner}
-              onHireMe={() => setHireOpen(true)}
+              onHireMe={goToHireFlow}
             />
             <AboutSection profile={profile} isMe={false}/>
             <FeaturedSection profile={profile} isMe={false} navigate={navigate}/>
@@ -85,13 +87,6 @@ export function PublicProfilePage({ slug }) {
         )}
       </main>
 
-      {hireOpen && profile && (
-        <HireMeModal
-          targetName={profile.name}
-          targetSlug={slug}
-          onClose={() => setHireOpen(false)}
-        />
-      )}
     </div>
   );
 }

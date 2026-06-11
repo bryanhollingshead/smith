@@ -30,13 +30,23 @@ const REQUIRE_EMAIL_VERIFICATION =
   );
 
 // ─── POST /api/auth/signup ──────────────────────────────────────────────────
-// Body: { email, password, first_name?, last_name? }
+// Body: { email, password, first_name?, last_name?, role? }
 // Side effects: creates user, issues 6-digit code, sends verification email.
+//
+// role: 'tradesperson' (default) | 'homeowner'. Homeowners skip the trade-
+// selection onboarding — they go straight to the seed-home flow, so we
+// stamp onboarding_done=TRUE on creation.
 router.post('/signup', async (req, res) => {
-  const { email, password, first_name = '', last_name = '' } = req.body || {};
+  const {
+    email, password,
+    first_name = '', last_name = '',
+    role: roleIn,
+  } = req.body || {};
   if (!email || !password) {
     return res.status(400).json({ error: 'Email and password required' });
   }
+  const role = roleIn === 'homeowner' ? 'homeowner' : 'tradesperson';
+  const skipOnboarding = role === 'homeowner';
 
   const pwError = validatePassword(password);
   if (pwError) return res.status(400).json({ error: pwError });
@@ -70,25 +80,34 @@ router.post('/signup', async (req, res) => {
   // verified, no code emailed, and let the user straight in.
   if (!REQUIRE_EMAIL_VERIFICATION) {
     const { rows } = await q(
-      `INSERT INTO users (email, password_hash, first_name, last_name, onboarding_step, email_verified)
-         VALUES ($1,$2,$3,$4,1,TRUE)
-         RETURNING id, email`,
-      [email, hash, first_name, last_name]
+      `INSERT INTO users (email, password_hash, first_name, last_name, role,
+                          onboarding_step, onboarding_done, email_verified)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,TRUE)
+         RETURNING id, email, role, onboarding_done`,
+      [email, hash, first_name, last_name, role,
+       skipOnboarding ? 5 : 1, skipOnboarding]
     );
     const token = signToken({ sub: rows[0].id });
     return res.status(201).json({
       ok: true,
       token,
-      user: { id: rows[0].id, email: rows[0].email, email_verified: true },
+      user: {
+        id: rows[0].id, email: rows[0].email,
+        email_verified: true,
+        role: rows[0].role,
+        onboarding_done: rows[0].onboarding_done,
+      },
     });
   }
 
   const result = await tx(async (c) => {
     const { rows } = await c.query(
-      `INSERT INTO users (email, password_hash, first_name, last_name, onboarding_step)
-         VALUES ($1,$2,$3,$4,1)
-         RETURNING id, email`,
-      [email, hash, first_name, last_name]
+      `INSERT INTO users (email, password_hash, first_name, last_name, role,
+                          onboarding_step, onboarding_done)
+         VALUES ($1,$2,$3,$4,$5,$6,$7)
+         RETURNING id, email, role, onboarding_done`,
+      [email, hash, first_name, last_name, role,
+       skipOnboarding ? 5 : 1, skipOnboarding]
     );
     const user = rows[0];
     const code = make6DigitCode();
@@ -107,7 +126,12 @@ router.post('/signup', async (req, res) => {
   res.status(201).json({
     ok: true,
     token,
-    user: { id: result.user.id, email: result.user.email, email_verified: false },
+    user: {
+      id: result.user.id, email: result.user.email,
+      email_verified: false,
+      role: result.user.role,
+      onboarding_done: result.user.onboarding_done,
+    },
   });
 });
 
@@ -165,7 +189,7 @@ router.post('/signin', async (req, res) => {
     return res.status(400).json({ error: 'Email and password required' });
 
   const { rows } = await q(
-    `SELECT id, email, password_hash, email_verified, onboarding_done
+    `SELECT id, email, password_hash, email_verified, onboarding_done, role
        FROM users WHERE email = $1`,
     [email]
   );
@@ -183,6 +207,7 @@ router.post('/signin', async (req, res) => {
       email: rows[0].email,
       email_verified: REQUIRE_EMAIL_VERIFICATION ? rows[0].email_verified : true,
       onboarding_done: rows[0].onboarding_done,
+      role: rows[0].role,
     },
   });
 });
@@ -248,7 +273,7 @@ router.post('/reset', async (req, res) => {
 router.get('/me', requireAuth, async (req, res) => {
   const { rows } = await q(
     `SELECT id, email, email_verified, first_name, last_name, headline, location,
-            onboarding_step, onboarding_done, avatar_tone, verified_smith
+            onboarding_step, onboarding_done, avatar_tone, verified_smith, role
        FROM users WHERE id = $1`,
     [req.userId]
   );

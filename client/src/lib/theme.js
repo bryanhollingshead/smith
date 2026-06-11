@@ -13,4 +13,9 @@ export const B = {
   accentSoft: '#C8731F1A',
   amber: '#B8860B',
   danger: '#A33A2A',
+  dangerSoft: '#fbe8e2',
+  success: '#7A8A3F',
+  successSoft: '#e9efde',
+  // Role colors for ProjectShell footer + role badge.
+  homeowner: '#5B7A8A',
 };

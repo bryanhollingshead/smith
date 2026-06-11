@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Smith — Homeowner Entry Flows (handoff preview)</title>
+  <link rel="stylesheet" href="smith.css"/>
+  <style>
+    body { background: #efece5; font-family: 'Inter Tight', sans-serif; margin: 0; }
+    .frame { max-width: 1280px; margin: 28px auto; background: #FBF7EE; border: 1px solid #D8D0BC; border-radius: 8px; overflow: hidden; box-shadow: 0 8px 28px rgba(42,31,23,0.08); }
+    .frame > .label { font-family: 'IBM Plex Mono', monospace; font-size: 12px; letter-spacing: 0.04em; color: #9A8E7B; padding: 12px 18px; border-bottom: 1px solid #D8D0BC; background: #F5F1E8; }
+    .stage { height: 820px; overflow: auto; }
+    .stage.tall { height: 1500px; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+  <script type="text/babel" src="smith-shared.jsx"></script>
+  <script type="text/babel" src="smith-direction-b.jsx"></script>
+  <script type="text/babel" src="smith-project-shell.jsx"></script>
+  <script type="text/babel" src="smith-homeowner-entry.jsx"></script>
+
+  <script type="text/babel">
+    function Frame({ label, tall, children }) {
+      return (
+        <div className="frame">
+          <div className="label">{label}</div>
+          <div className={"stage" + (tall ? " tall" : "")}>{children}</div>
+        </div>
+      );
+    }
+    function App() {
+      return (
+        <div>
+          <Frame label="Entry A · Hire-me · address required"><HireMeEntryB/></Frame>
+          <Frame label="Entry B · Homeowner self-serve sign-up"><HomeownerSignupB/></Frame>
+          <Frame label="Address found · confirm home (public records + imagery)"><AddressFoundB/></Frame>
+          <Frame label="Seed dashboard · sparse today + locked future modules" tall><SeedDashboardB/></Frame>
+        </div>
+      );
+    }
+    ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+  </script>
+</body>
+</html>
