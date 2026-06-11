@@ -25,9 +25,10 @@ import { useRouter } from '../lib/router.jsx';
 // Centralized link targets so we can rewire navigation in one place if
 // these routes ever move.
 const ROUTES = {
-  signin:  '/auth/signin',
-  signup:  '/auth/signup',
-  forgot:  '/auth/forgot',
+  signin:    '/auth/signin',
+  signup:    '/auth/signup',
+  forgot:    '/auth/forgot',
+  homeowner: '/auth/homeowner',
 };
 
 export function LandingPage() {
@@ -143,6 +144,23 @@ function Hero({ navigate }) {
             <a href="#how-it-works" style={{ textDecoration: 'none' }}>
               <button style={secondaryButtonStyle}>See how it works</button>
             </a>
+          </div>
+          {/* Homeowner entry — surfaced quietly under the trade-pitched
+              hero CTAs until the landing page gets a full redesign that
+              treats homeowners as a first-class audience. */}
+          <div style={{
+            marginTop: 18, fontSize: 13.5, color: B.dim,
+          }}>
+            Own a home?{' '}
+            <button
+              onClick={() => navigate(ROUTES.homeowner)}
+              style={{
+                background: 'transparent', border: 'none', padding: 0,
+                color: B.accent, fontWeight: 600, cursor: 'pointer',
+                fontSize: 13.5, fontFamily: 'inherit',
+              }}>
+              Claim your home →
+            </button>
           </div>
           <div style={{
             marginTop: 32,
