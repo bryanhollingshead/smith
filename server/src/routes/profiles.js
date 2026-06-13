@@ -286,9 +286,18 @@ router.patch('/me', requireAuth, async (req, res) => {
     'insurance_carrier', 'insurance_limit',
     'insurance_doc_url', 'insurance_doc_mime', 'insurance_share_public',
     'onboarding_step', 'onboarding_done',
+    'hiring_context',
   ];
   const updates = {};
   for (const k of allowed) if (k in (req.body || {})) updates[k] = req.body[k];
+  // hiring_context is a constrained enum — defend against bad client input
+  // before the DB check fires (clearer error than a raw constraint violation).
+  if ('hiring_context' in updates) {
+    const v = updates.hiring_context;
+    if (v !== null && v !== 'own_home' && v !== 'property_manager') {
+      return res.status(400).json({ error: 'Invalid hiring_context' });
+    }
+  }
   if (Object.keys(updates).length === 0)
     return res.status(400).json({ error: 'No fields to update' });
 

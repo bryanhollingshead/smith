@@ -26,7 +26,11 @@ import { useRouter } from '../lib/router.jsx';
 // these routes ever move.
 const ROUTES = {
   signin:    '/auth/signin',
-  signup:    '/auth/signup',
+  // `signup` used to point directly at the tradesman credentials page; we
+  // now fork through the intent picker at /auth/start. The fast-path
+  // accent link below the hero CTAs still goes straight to /auth/homeowner
+  // for users who already know they're hiring.
+  signup:    '/auth/start',
   forgot:    '/auth/forgot',
   homeowner: '/auth/homeowner',
 };

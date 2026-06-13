@@ -11,7 +11,7 @@
 import React, { useEffect, useState } from 'react';
 import { B } from '../lib/theme.js';
 import { Icon } from '../components/Icon.jsx';
-import { EntryShell, EntryInput, AddressField } from '../components/HomeownerEntry.jsx';
+import { EntryShell, EntryInput, AddressField, HiringContextChoice } from '../components/HomeownerEntry.jsx';
 import { useAuth } from '../lib/AuthContext.jsx';
 import { useRouter } from '../lib/router.jsx';
 import { api } from '../lib/api.js';
@@ -31,6 +31,11 @@ export function HomeownerSignupPage() {
       : null
   );
   const [addressText, setAddressText] = useState(incomingAddress);
+  // One-tap hiring-context declaration. Drives the DISPLAYED mode label
+  // ("Homeowner" vs "Property manager") — never stored as a label string,
+  // only as this enum. Default = own_home so the user can blow past it in
+  // one click if they're claiming their own house.
+  const [hiringContext, setHiringContext] = useState('own_home');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [terms, setTerms] = useState(true);
@@ -46,7 +51,11 @@ export function HomeownerSignupPage() {
 
     setBusy(true);
     try {
-      await signUp({ email: email.trim(), password, role: 'homeowner' });
+      await signUp({
+        email: email.trim(), password,
+        role: 'homeowner',
+        hiring_context: hiringContext,
+      });
       // Mint the seed home using the picked place + the records the server
       // has on file (so the AddressFound screen has facts to show).
       const { home } = await api.post('/homes', {
@@ -112,6 +121,12 @@ export function HomeownerSignupPage() {
       <p style={{ color: B.dim, fontSize: 14.5, lineHeight: 1.55, margin: '12px 0 24px' }}>
         {subhead}
       </p>
+
+      <HiringContextChoice
+        value={hiringContext}
+        onChange={setHiringContext}
+        disabled={busy}
+      />
 
       <AddressField
         autoFocus={!incomingPlaceId}

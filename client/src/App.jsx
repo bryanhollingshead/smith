@@ -33,6 +33,11 @@ import { HireMeEntryPage } from './pages/HireMeEntry.jsx';
 import { HomeownerSignupPage } from './pages/HomeownerSignup.jsx';
 import { AddressFoundPage } from './pages/AddressFound.jsx';
 import { SeedDashboardPage } from './pages/SeedDashboard.jsx';
+import { SignUpStartPage } from './pages/SignUpStart.jsx';
+import { ModeSetupHomeownerPage } from './pages/ModeSetupHomeowner.jsx';
+import { ModeSetupTradesmanPage } from './pages/ModeSetupTradesman.jsx';
+import { HomeownerShell } from './components/HomeownerShell.jsx';
+import { modeOf, MODE } from './lib/mode.js';
 
 export function App() {
   const { user, booted } = useAuth();
@@ -60,6 +65,8 @@ export function App() {
     if (path === '/auth/forgot')    return <ForgotPasswordPage/>;
     if (path === '/auth/reset')     return <ResetPasswordPage/>;
     if (path === '/auth/signin')    return <SignInPage/>;
+    // Phase 7: intent picker is the new first step of account creation.
+    if (path === '/auth/start')     return <SignUpStartPage/>;
     // Phase 6: homeowner self-serve signup is also publicly reachable.
     if (path === '/auth/homeowner') return <HomeownerSignupPage/>;
     // Phase 5: public profile + magic-link reply pages are reachable without auth.
@@ -83,6 +90,35 @@ export function App() {
   if (!user.email_verified) return <ConfirmEmailPage/>;
   if (!user.onboarding_done) return <OnboardingPage/>;
 
+  // Phase 7: setup-mode flows live outside both shells (they're transitional
+  // by definition — the user is mid-switch and may not have the target
+  // mode's profile yet).
+  if (path === '/mode/setup-homeowner') return <ModeSetupHomeownerPage/>;
+  if (path === '/mode/setup-tradesman') return <ModeSetupTradesmanPage/>;
+
+  // AddressFound is a transitional "is this your home?" screen with its own
+  // step-counter chrome — render it outside the shell in any mode.
+  const homeConfirmMatchTop = match('/home/:id/confirm', path);
+  if (homeConfirmMatchTop) {
+    return (
+      <MessagesProvider>
+        <AddressFoundPage id={homeConfirmMatchTop.id}/>
+      </MessagesProvider>
+    );
+  }
+
+  // Phase 7: shell fork by active mode. Homeowner mode gets its own
+  // shell (left rail + homeowner nav); tradesman mode is the legacy
+  // TopNav + route tree.
+  if (modeOf(user) === MODE.HOMEOWNER) {
+    return (
+      <MessagesProvider>
+        <HomeownerShell/>
+      </MessagesProvider>
+    );
+  }
+
+  // Tradesman shell — the existing experience.
   // Authenticated, verified, onboarded — route. Wrap the whole authenticated
   // tree in MessagesProvider so the websocket opens once and the nav badge
   // updates everywhere.

@@ -259,6 +259,67 @@ export function AddressField({
   );
 }
 
+// ── HiringContextChoice ──────────────────────────────────────────────────
+// One-tap question: own_home (default) | property_manager. Value drives the
+// homeowner-mode label client-side via lib/mode.js — it's never stored as
+// the label string itself.
+export function HiringContextChoice({ value, onChange, disabled }) {
+  const options = [
+    { v: 'own_home',         t: 'My home',              s: "It's where I live" },
+    { v: 'property_manager', t: 'A property I manage',  s: 'Owner-occupied or rental' },
+  ];
+  return (
+    <div style={{ marginBottom: 16 }}>
+      <label style={{
+        color: B.dim, fontSize: 12, fontStyle: 'italic',
+        display: 'block', marginBottom: 6,
+      }}>I'm hiring for…</label>
+      <div style={{
+        display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8,
+      }}>
+        {options.map(o => {
+          const active = value === o.v;
+          return (
+            <button
+              key={o.v}
+              type="button"
+              onClick={() => !disabled && onChange(o.v)}
+              disabled={disabled}
+              style={{
+                background: active ? B.accentSoft : B.surface,
+                border: `1px solid ${active ? B.accent : B.line}`,
+                borderRadius: 8, padding: '11px 14px',
+                textAlign: 'left', cursor: disabled ? 'not-allowed' : 'pointer',
+                color: B.text, fontFamily: 'inherit',
+                opacity: disabled ? 0.55 : 1,
+                transition: 'border-color 100ms ease, background 100ms ease',
+              }}>
+              <div style={{
+                display: 'flex', alignItems: 'center', gap: 8,
+              }}>
+                <span style={{
+                  width: 16, height: 16, borderRadius: '50%',
+                  background: active ? B.accent : 'transparent',
+                  border: `1.5px solid ${active ? B.accent : B.line}`,
+                  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                  flexShrink: 0,
+                }}>
+                  {active && <Icon name="check" size={9} stroke={3} style={{ color: '#fff' }}/>}
+                </span>
+                <span style={{ fontSize: 13.5, fontWeight: 600 }}>{o.t}</span>
+              </div>
+              <div style={{
+                color: B.faint, fontSize: 11.5, fontStyle: 'italic',
+                marginTop: 4, marginLeft: 24,
+              }}>{o.s}</div>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 // ── LockedModule ──────────────────────────────────────────────────────────
 // The blurred-photo "what you'll unlock" card. The CTA is provided by the
 // caller and is wired to the relevant unlock subflow (TODOs for now).

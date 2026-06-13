@@ -4,7 +4,7 @@ A durable record of decisions made, work shipped, and what's still open.
 Paste this at the start of a session so Claude is caught up in 30 seconds.
 Update it at the end of each session.
 
-**Last updated:** 2026-06-11 (Homeowner entry flows — four screens built + E2E verified locally)
+**Last updated:** 2026-06-13 (One account, two modes — intent-fork signup + post-login mode toggle)
 **Live URL:** https://smith-h86n.onrender.com
 **Repo:** github.com/bryanhollingshead/smith
 **Sole dev:** Bryan Hollingshead (product background)
@@ -13,6 +13,161 @@ Update it at the end of each session.
 ---
 
 ## ✅ Done — recent wins (in roughly reverse chronological order)
+
+### One account, two modes — intent fork + post-login mode toggle (2026-06-13)
+Phase 7. Closes the model question opened by phase 6: phase 6 created a
+separate homeowner signup path but left the two audiences as two account
+shapes. Phase 7 reframes Smith as **ONE account that operates in two
+modes — Tradesman or Homeowner**, with a server-persisted active mode,
+an intent picker at signup, and a live mode toggle in the nav so any user
+can flip between modes without losing the other side. Not yet pushed.
+
+**The shape:**
+- `users.role` (phase 6) is reinterpreted as the persistent **active
+  mode** (`'tradesperson'` on the DB side, `'tradesman'` on the
+  product-facing side). Same column, same data — no rename, no risk to
+  existing rows. Every existing seed user (Marcus id=1, the smith-god
+  accounts, the test homeowners minted during phase 6) keeps working.
+- The "has each profile?" question is **derived server-side** rather
+  than denormalized, so the flags can't drift:
+    - `profiles.tradesman = EXISTS user_trades WHERE user_id=u.id`
+    - `profiles.homeowner = EXISTS homes WHERE owner_user_id=u.id`
+  Returned in `/api/auth/me`, `/signin`, `/signup`, and `/mode` so the
+  client can decide whether a mode switch needs a setup flow.
+
+**Migration 014 — one column:**
+- `users.hiring_context TEXT NULL` with check
+  `IN ('own_home','property_manager')`. **Display-label only** — drives
+  whether the user's homeowner mode renders as "Homeowner" or "Property
+  manager" everywhere. NEVER stored as the label string. NULL on every
+  existing row → defaults to "Homeowner" if they ever switch.
+- The original spec had three values (own_home / property_owner /
+  property_manager); Bryan trimmed it to two during plan review for
+  one-tap simplicity. "Property owner" is the kind of thing we can add
+  back later by extending the check + the label map in `lib/mode.js`.
+
+**Server endpoints:**
+- `POST /api/auth/signup`  — accepts `role` + `hiring_context`. Writes
+  `hiring_context` only when `role='homeowner'`; otherwise NULL.
+- `POST /api/auth/signin`  — returns the new shape (role + hiring_context
+  + profiles flags).
+- `GET  /api/auth/me`      — same shape, plus the legacy profile fields
+  TopNav already depends on (first_name, avatar_tone, etc).
+- `PATCH /api/auth/me/mode` — body `{ mode: 'tradesman' | 'homeowner' }`.
+  Updates `users.role` and returns the shaped user + `needs_setup`
+  boolean. `needs_setup:true` is the cue that the target mode has no
+  underlying profile yet — client routes to a setup flow before the
+  new shell renders.
+- `PATCH /api/profiles/me` — now also accepts `hiring_context` so users
+  can flip "My home → A property I manage" after signup without
+  re-running the homeowner-signup flow.
+
+**Client:**
+- `lib/mode.js` — single source of truth for label derivation. Exports
+  `modeOf(user)`, `modeLabel(user)`, `labelForMode(user, mode)`,
+  `hasProfile(user, mode)`, `iconForMode(mode)`. No string is ever
+  stored or hardcoded — every "Homeowner" / "Property manager" on screen
+  flows through these helpers.
+- `lib/AuthContext.jsx` — adds `switchMode(mode)` that wraps the PATCH
+  + optimistically updates `user`, returns `{ user, needsSetup }`.
+- `components/ModeToggle.jsx` — two visual variants of the same
+  affordance:
+    - **`variant="pill"`** sits in the TopNav between search and the
+      nav row (always-visible in tradesman shell).
+    - **`variant="card"`** sits in the ProjectShell rail footer
+      (homeowner shell), replacing the static "You're viewing as"
+      card from phase 6.
+  Both pull `modeLabel(user)` so a property manager sees
+  **"Property manager"** as the current-mode label in the rail footer,
+  not the literal string "Homeowner".
+- `pages/SignUpStart.jsx` (route `/auth/start`) — the new first step
+  of account creation. Two equal cards: **"I'm a tradesman"** → existing
+  `/auth/signup`, **"I'm hiring"** → existing `/auth/homeowner`. Both
+  downstream screens were untouched — the picker is a thin diverter.
+- `pages/HomeownerSignup.jsx` — adds a two-pill `HiringContextChoice`
+  above the AddressField. Default = `own_home`. Submitted as part of
+  the existing signup body.
+- `pages/ModeSetupHomeowner.jsx` (`/mode/setup-homeowner`) — for an
+  already-signed-in tradesman who flips to homeowner mode with no
+  `homes` row. Reuses HiringContextChoice + AddressField + `POST /homes`
+  from phase 6, minus credentials. Has an escape hatch ("← Back to
+  tradesman mode") that calls `switchMode('tradesman')`.
+- `pages/ModeSetupTradesman.jsx` (`/mode/setup-tradesman`) — mirror
+  flow for homeowners flipping to tradesman with no `user_trades` rows.
+  Reuses `GET /trades` + `POST /profiles/me/trades` from the legacy
+  onboarding wizard.
+- `components/HomeownerShell.jsx` — new global shell for homeowner
+  mode. Wraps every homeowner-mode route in `ProjectShell` with the
+  homeowner nav (My home / Find a pro / My projects / Inquiries sent
+  / Saved tradesmen). The unbuilt items render stub pages that say
+  "Coming in the next handoff" — the shell ships now so the homeowner
+  side has a real seat at the table even before those flows land.
+- `pages/SeedDashboard.jsx` — refactored to be **headless**. The hero +
+  progress + checklist + locked modules now sit inside whatever shell
+  wraps it (HomeownerShell in practice). Removes the static
+  `roleData={…You · homeowner…}` prop that was suppressing ModeToggle.
+- `App.jsx` — authed branch forks on `modeOf(user)`:
+    - Homeowner mode → wraps everything in MessagesProvider +
+      HomeownerShell.
+    - Tradesman mode → the existing TopNav + route tree (unchanged
+      except the inline ModeToggle pill).
+  `/mode/setup-homeowner` and `/mode/setup-tradesman` render outside
+  both shells (they're transitional by definition). `/home/:id/confirm`
+  (AddressFound) also renders outside the shell — it has its own
+  "Step 2 of 3" chrome and doesn't want a second layer of frame.
+- `pages/Landing.jsx` — `ROUTES.signup` redirected to `/auth/start`,
+  so the LandingNav button, hero primary, and final-CTA all funnel
+  through the intent picker. The "Own a home? Claim your home →"
+  accent line below the hero stays direct to `/auth/homeowner` as a
+  fast-path for users who already know.
+
+**E2E verification (Playwright against local Vite + Express):**
+1. ✅ Landing → "Create your profile" → `/auth/start` → intent picker
+   renders.
+2. ✅ Picker → "I'm a tradesman" → `/auth/signup`. ✓
+3. ✅ Picker → "I'm hiring" → `/auth/homeowner`. ✓
+4. ✅ Homeowner signup with `A property I manage` selected → POST
+   `/signup` writes `hiring_context='property_manager'` → home minted
+   → AddressFound confirm → SeedDashboard. **Rail-footer ModeToggle
+   shows "Property manager"** (the derived label fires).
+5. ✅ Click "Property manager" rail card → dropdown opens → pick
+   "Tradesman" → server returns `needs_setup:true` → routed to
+   `/mode/setup-tradesman` → pick Carpentry → save → `/feed`.
+   **TopNav pill now shows "Tradesman"**.
+6. ✅ Click "Tradesman" pill → pick "Property manager" → server returns
+   `needs_setup:false` (the home from step 4 still exists) → lands on
+   `/home/8` (HomeownerShell renders, no setup needed).
+7. ✅ Existing user Marcus (id=1) signs in with seed credentials → lands
+   on `/feed` with TopNav showing "Tradesman". No data touched.
+
+8 screenshots at `/tmp/smith-verify/mode-*.png`.
+
+**Notable bugs caught + fixed mid-build:**
+- `signUp` in AuthContext was destructuring args and silently dropping
+  `hiring_context`. First test showed `hiring_context: null` post-signup
+  even though the form had `property_manager` selected. One-line fix.
+- `SeedDashboard.jsx` was rendering its own `<ProjectShell>` and passing
+  `roleData`, which both (a) double-wrapped the shell when HomeownerShell
+  was added and (b) suppressed the new ModeToggle in favor of the legacy
+  static card. Refactored SeedDashboard to a headless content block.
+- `AddressFound` lives at `/home/:id/confirm` and was being routed through
+  HomeownerShell, which produced a nested chrome (rail + the AddressFound
+  "Step 2 of 3" header). Pulled it up to render outside both shells.
+
+**Open / follow-ups:**
+- The four homeowner stub pages (Find a pro, My projects, Inquiries
+  sent, Saved tradesmen) need real implementations — each will be a
+  handoff bundle in its own right. The shell + nav + mode toggle are
+  the spine those flows hang off of.
+- The "Property manager" hiring_context doesn't yet open a
+  property-manager-specific view of the dashboard (e.g. multiple homes,
+  units, tenants). For now it's a pure display-label distinction.
+  Worth revisiting once we have a real property-manager design.
+- `users.role` keeps the legacy `'tradesperson'` value on the DB side
+  even though we say "Tradesman" everywhere user-visible. The
+  product/DB language is intentionally split — touching the column
+  would risk too many existing references. If we ever consolidate, do
+  it as a rename migration with full code sweep.
 
 ### Homeowner entry module — phase 6, four screens shipped (2026-06-11)
 First piece of the homeowner-acquisition funnel. Opens a second front for

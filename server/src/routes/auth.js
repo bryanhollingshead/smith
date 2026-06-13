@@ -17,6 +17,35 @@ const router = Router();
 const CODE_TTL_MIN = parseInt(process.env.EMAIL_CODE_TTL_MIN || '15', 10);
 const RESET_TTL_MIN = parseInt(process.env.RESET_TOKEN_TTL_MIN || '30', 10);
 
+// ── Shape the user payload returned by signup / signin / /me ──────────────
+// Adds the derived `profiles` flags so the client knows which modes the user
+// has actually set up. The flags are derived (never stored) so they can't
+// drift from the underlying entities:
+//   tradesman: onboarding_done AND role-tradesperson-history (i.e. they've
+//              completed trade selection at least once)
+//   homeowner: at least one row in homes owned by them
+// The client uses these to decide whether a mode switch needs a setup flow.
+async function shapeAuthedUser(row) {
+  const [homes, trades] = await Promise.all([
+    q(`SELECT 1 FROM homes WHERE owner_user_id = $1 LIMIT 1`, [row.id]),
+    q(`SELECT 1 FROM user_trades WHERE user_id = $1 LIMIT 1`, [row.id]).catch(() => ({ rowCount: 0 })),
+  ]);
+  return {
+    id: row.id,
+    email: row.email,
+    email_verified: row.email_verified !== undefined
+      ? (REQUIRE_EMAIL_VERIFICATION ? row.email_verified : true)
+      : true,
+    role: row.role,
+    hiring_context: row.hiring_context ?? null,
+    onboarding_done: row.onboarding_done,
+    profiles: {
+      tradesman: !!trades.rowCount,
+      homeowner: !!homes.rowCount,
+    },
+  };
+}
+
 // Email verification can be switched off during soft launch (no verified
 // sending domain yet, so codes can't be delivered). When REQUIRE_EMAIL_-
 // VERIFICATION is falsey, signup creates already-verified accounts and the
@@ -41,12 +70,20 @@ router.post('/signup', async (req, res) => {
     email, password,
     first_name = '', last_name = '',
     role: roleIn,
+    hiring_context: hiringIn,
   } = req.body || {};
   if (!email || !password) {
     return res.status(400).json({ error: 'Email and password required' });
   }
   const role = roleIn === 'homeowner' ? 'homeowner' : 'tradesperson';
   const skipOnboarding = role === 'homeowner';
+  // hiring_context is asked one-tap during the homeowner signup. NULL means
+  // "never asked" → display label defaults to "Homeowner". Validate against
+  // the enum so the DB check constraint never fires on user-facing requests.
+  const hiringContext =
+    role === 'homeowner' && (hiringIn === 'own_home' || hiringIn === 'property_manager')
+      ? hiringIn
+      : null;
 
   const pwError = validatePassword(password);
   if (pwError) return res.status(400).json({ error: pwError });
@@ -81,32 +118,29 @@ router.post('/signup', async (req, res) => {
   if (!REQUIRE_EMAIL_VERIFICATION) {
     const { rows } = await q(
       `INSERT INTO users (email, password_hash, first_name, last_name, role,
+                          hiring_context,
                           onboarding_step, onboarding_done, email_verified)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,TRUE)
-         RETURNING id, email, role, onboarding_done`,
-      [email, hash, first_name, last_name, role,
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,TRUE)
+         RETURNING id, email, role, hiring_context, onboarding_done`,
+      [email, hash, first_name, last_name, role, hiringContext,
        skipOnboarding ? 5 : 1, skipOnboarding]
     );
     const token = signToken({ sub: rows[0].id });
     return res.status(201).json({
       ok: true,
       token,
-      user: {
-        id: rows[0].id, email: rows[0].email,
-        email_verified: true,
-        role: rows[0].role,
-        onboarding_done: rows[0].onboarding_done,
-      },
+      user: await shapeAuthedUser(rows[0]),
     });
   }
 
   const result = await tx(async (c) => {
     const { rows } = await c.query(
       `INSERT INTO users (email, password_hash, first_name, last_name, role,
+                          hiring_context,
                           onboarding_step, onboarding_done)
-         VALUES ($1,$2,$3,$4,$5,$6,$7)
-         RETURNING id, email, role, onboarding_done`,
-      [email, hash, first_name, last_name, role,
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+         RETURNING id, email, role, hiring_context, onboarding_done`,
+      [email, hash, first_name, last_name, role, hiringContext,
        skipOnboarding ? 5 : 1, skipOnboarding]
     );
     const user = rows[0];
@@ -126,12 +160,7 @@ router.post('/signup', async (req, res) => {
   res.status(201).json({
     ok: true,
     token,
-    user: {
-      id: result.user.id, email: result.user.email,
-      email_verified: false,
-      role: result.user.role,
-      onboarding_done: result.user.onboarding_done,
-    },
+    user: { ...(await shapeAuthedUser(result.user)), email_verified: false },
   });
 });
 
@@ -189,7 +218,7 @@ router.post('/signin', async (req, res) => {
     return res.status(400).json({ error: 'Email and password required' });
 
   const { rows } = await q(
-    `SELECT id, email, password_hash, email_verified, onboarding_done, role
+    `SELECT id, email, password_hash, email_verified, onboarding_done, role, hiring_context
        FROM users WHERE email = $1`,
     [email]
   );
@@ -202,13 +231,7 @@ router.post('/signin', async (req, res) => {
   res.json({
     ok: true,
     token,
-    user: {
-      id: rows[0].id,
-      email: rows[0].email,
-      email_verified: REQUIRE_EMAIL_VERIFICATION ? rows[0].email_verified : true,
-      onboarding_done: rows[0].onboarding_done,
-      role: rows[0].role,
-    },
+    user: await shapeAuthedUser(rows[0]),
   });
 });
 
@@ -273,13 +296,65 @@ router.post('/reset', async (req, res) => {
 router.get('/me', requireAuth, async (req, res) => {
   const { rows } = await q(
     `SELECT id, email, email_verified, first_name, last_name, headline, location,
-            onboarding_step, onboarding_done, avatar_tone, verified_smith, role
+            onboarding_step, onboarding_done, avatar_tone, verified_smith,
+            role, hiring_context
        FROM users WHERE id = $1`,
     [req.userId]
   );
-  const u = rows[0];
-  if (u && !REQUIRE_EMAIL_VERIFICATION) u.email_verified = true;
-  res.json({ user: u });
+  if (!rows[0]) return res.status(404).json({ error: 'Not found' });
+  const shaped = await shapeAuthedUser(rows[0]);
+  // Preserve the richer profile fields that callers other than the shell
+  // depend on (TopNav uses first/last/avatar_tone, etc).
+  res.json({
+    user: {
+      ...shaped,
+      first_name: rows[0].first_name,
+      last_name: rows[0].last_name,
+      headline: rows[0].headline,
+      location: rows[0].location,
+      onboarding_step: rows[0].onboarding_step,
+      avatar_tone: rows[0].avatar_tone,
+      verified_smith: rows[0].verified_smith,
+    },
+  });
+});
+
+// ─── PATCH /api/auth/me/mode ───────────────────────────────────────────────
+// Switch the persisted active mode for this account. Body: { mode }
+//   'tradesman' | 'homeowner'        ('tradesman' is the product-facing label;
+//                                     the DB column users.role keeps the older
+//                                     'tradesperson' value for this side so
+//                                     we don't touch existing rows.)
+// Returns the full shaped user — including profiles.{tradesman,homeowner}
+// flags so the client knows whether the target mode needs a setup flow.
+router.patch('/me/mode', requireAuth, async (req, res) => {
+  const { mode } = req.body || {};
+  if (mode !== 'tradesman' && mode !== 'homeowner') {
+    return res.status(400).json({ error: 'Invalid mode' });
+  }
+  const stored = mode === 'homeowner' ? 'homeowner' : 'tradesperson';
+  const { rows } = await q(
+    `UPDATE users SET role = $1, updated_at = NOW() WHERE id = $2
+       RETURNING id, email, email_verified, first_name, last_name, headline, location,
+                 onboarding_step, onboarding_done, avatar_tone, verified_smith,
+                 role, hiring_context`,
+    [stored, req.userId]
+  );
+  const shaped = await shapeAuthedUser(rows[0]);
+  res.json({
+    user: {
+      ...shaped,
+      first_name: rows[0].first_name,
+      last_name: rows[0].last_name,
+      headline: rows[0].headline,
+      location: rows[0].location,
+      onboarding_step: rows[0].onboarding_step,
+      avatar_tone: rows[0].avatar_tone,
+      verified_smith: rows[0].verified_smith,
+    },
+    // Convenience: client uses this to decide whether to route to a setup flow.
+    needs_setup: !shaped.profiles[mode],
+  });
 });
 
 // ─── DEV ONLY: GET /api/auth/dev/last-email ─────────────────────────────────

@@ -12,7 +12,6 @@ import React, { useEffect, useState } from 'react';
 import { B } from '../lib/theme.js';
 import { Icon } from '../components/Icon.jsx';
 import { Avatar, Photo } from '../components/Primitives.jsx';
-import { ProjectShell } from '../components/ProjectShell.jsx';
 import { LockedModule } from '../components/HomeownerEntry.jsx';
 import { useRouter } from '../lib/router.jsx';
 import { api } from '../lib/api.js';
@@ -156,35 +155,11 @@ export function SeedDashboardPage({ id }) {
   const isFromHireMe = home.entry_source === 'hire-me' && !!home.pending_pro_slug;
   const detailsRemainingForUnlock = Math.max(0, 7 - home.progress.added); // arbitrary "next milestone"
 
+  // Just the seed-home content — the shell (ProjectShell rail + nav +
+  // mode toggle) is provided by HomeownerShell. Returning a fragment
+  // keeps this component composable inside whatever shell wraps it.
   return (
-    <ProjectShell
-      active="home"
-      role="homeowner"
-      project={{
-        name: home.address_line1,
-        addr: `${home.city}, ${home.state}`,
-        cover: 'frame',
-        phase: 'New profile',
-        color: B.success,
-      }}
-      otherProjects={[]}
-      navItems={[
-        { k: 'home',     label: 'My home',     icon: 'home',      sub: 'Just started' },
-        { k: 'value',    label: 'Value & equity', icon: 'briefcase', sub: 'Add details to unlock' },
-        { k: 'rooms',    label: 'Rooms',       icon: 'building',  sub: '0 catalogued' },
-        { k: 'vault',    label: 'Photo vault', icon: 'image',     sub: '3 from public sources' },
-        { k: 'maint',    label: 'Maintenance', icon: 'check',     sub: 'Add details to unlock' },
-        { k: 'projects', label: 'Projects',    icon: 'send',      sub: 'Start your first' },
-        { k: 'team',     label: 'My trades',   icon: 'users',     sub: 'None yet' },
-      ]}
-      roleData={{ label: 'You · homeowner', icon: 'home', color: B.homeowner }}
-      action={
-        <button style={{
-          background: B.text, color: B.surface, border: 'none',
-          padding: '9px 18px', borderRadius: 100,
-          fontSize: 13, fontWeight: 600, cursor: 'pointer',
-        }}>Complete profile</button>
-      }>
+    <>
       {/* Hero */}
       <div style={{ position: 'relative', height: 240, overflow: 'hidden' }}>
         <Photo kind="frame" height="100%"/>
@@ -422,7 +397,7 @@ export function SeedDashboardPage({ id }) {
           </section>
         </aside>
       </div>
-    </ProjectShell>
+    </>
   );
 }
 

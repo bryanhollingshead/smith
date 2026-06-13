@@ -38,10 +38,12 @@ export function AuthProvider({ children }) {
     }
   };
 
-  const signUp = async ({ email, password, first_name, last_name, role }) => {
+  const signUp = async ({ email, password, first_name, last_name, role, hiring_context }) => {
     setLoading(true);
     try {
-      const data = await api.post('/auth/signup', { email, password, first_name, last_name, role });
+      const data = await api.post('/auth/signup', {
+        email, password, first_name, last_name, role, hiring_context,
+      });
       auth.set(data.token);
       setUser(data.user);
       return data.user;
@@ -55,8 +57,21 @@ export function AuthProvider({ children }) {
     setUser(null);
   };
 
+  // Switch the persisted active mode. Server returns the updated user plus
+  // `needs_setup: true` when the target mode has no underlying profile yet
+  // (no home for homeowner; no trades for tradesman) — the caller routes to
+  // a setup flow in that case before the new shell can render properly.
+  const switchMode = async (mode) => {
+    const data = await api.patch('/auth/me/mode', { mode });
+    setUser(data.user);
+    return { user: data.user, needsSetup: !!data.needs_setup };
+  };
+
   return (
-    <AuthCtx.Provider value={{ user, booted, loading, signIn, signUp, signOut, refresh, setUser }}>
+    <AuthCtx.Provider value={{
+      user, booted, loading,
+      signIn, signUp, signOut, refresh, setUser, switchMode,
+    }}>
       {children}
     </AuthCtx.Provider>
   );

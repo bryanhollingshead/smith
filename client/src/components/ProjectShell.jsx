@@ -12,6 +12,7 @@ import { B } from '../lib/theme.js';
 import { Icon } from './Icon.jsx';
 import { Avatar, Photo } from './Primitives.jsx';
 import { useRouter } from '../lib/router.jsx';
+import { ModeToggle } from './ModeToggle.jsx';
 
 // The header wordmark for the workspace chrome. Direction B = upright
 // Fraunces 600 with a period as the dot — same mark as Landing.jsx's
@@ -234,39 +235,40 @@ export function ProjectShell({
           })}
         </nav>
 
-        {/* Footer — current role */}
+        {/* Footer — mode toggle (Tradesman ↔ Homeowner). Replaces the old
+            static "You're viewing as" card. Caller can still pass roleData
+            to override the visual (used for in-tradesman GC/Sub axis), but
+            the default is the live mode toggle. */}
         <div style={{
           borderTop: `1px solid ${B.line}`,
           padding: collapsed ? '14px 8px' : '14px 18px',
         }}>
           {!collapsed && (
-            <>
-              <div style={{
-                display: 'flex', alignItems: 'center', gap: 10,
-                padding: '10px 12px', background: B.bg, border: `1px solid ${B.line}`,
-                borderRadius: 4, marginBottom: 10,
-              }}>
+            roleDataProp ? (
+              // Caller explicitly handed us a static role card (in-tradesman
+              // GC/Sub view, etc) — render the legacy card, no toggle.
+              <>
                 <div style={{
-                  width: 28, height: 28, borderRadius: '50%',
-                  background: roleData.color, color: '#fff',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                  display: 'flex', alignItems: 'center', gap: 10,
+                  padding: '10px 12px', background: B.bg, border: `1px solid ${B.line}`,
+                  borderRadius: 4, marginBottom: 10,
                 }}>
-                  <Icon name={roleData.icon} size={13}/>
+                  <div style={{
+                    width: 28, height: 28, borderRadius: '50%',
+                    background: roleData.color, color: '#fff',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                  }}>
+                    <Icon name={roleData.icon} size={13}/>
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ color: B.faint, fontSize: 10, fontStyle: 'italic' }}>You're viewing as</div>
+                    <div style={{ color: B.text, fontSize: 12.5, fontWeight: 600 }}>{roleData.label}</div>
+                  </div>
                 </div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ color: B.faint, fontSize: 10, fontStyle: 'italic' }}>You're viewing as</div>
-                  <div style={{ color: B.text, fontSize: 12.5, fontWeight: 600 }}>{roleData.label}</div>
-                </div>
-              </div>
-              <button onClick={() => navigate('/feed')} style={{
-                background: 'transparent', border: 'none', color: B.dim, fontSize: 12,
-                padding: 0, cursor: 'pointer',
-                display: 'inline-flex', alignItems: 'center', gap: 6,
-              }}>
-                <Icon name="arrow-l" size={11}/>
-                Back to Smith network
-              </button>
-            </>
+              </>
+            ) : (
+              <ModeToggle variant="card"/>
+            )
           )}
           {collapsed && (
             <button onClick={() => setCollapsed(false)} title={roleData.label} style={{

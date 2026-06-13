@@ -11,6 +11,7 @@ import { api } from '../lib/api.js';
 import { Icon } from './Icon.jsx';
 import { SmithLogo } from './Primitives.jsx';
 import { SmithAvatar } from './SmithAvatar.jsx';
+import { ModeToggle } from './ModeToggle.jsx';
 
 export function TopNav({ active }) {
   const { navigate } = useRouter();
@@ -90,6 +91,10 @@ export function TopNav({ active }) {
         </button>
 
         <SearchBox/>
+
+        {/* Mode toggle — visible in tradesman shell, marks the current mode
+            and lets the user flip to homeowner without leaving the nav. */}
+        <ModeToggle variant="pill"/>
 
         <nav style={{ display: 'flex', gap: 4, marginLeft: 'auto' }}>
           {items.map(it => (
