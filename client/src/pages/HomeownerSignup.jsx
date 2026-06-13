@@ -41,9 +41,16 @@ export function HomeownerSignupPage() {
   const [terms, setTerms] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
+  // Hit when signup returns 409 — the email is on an existing Smith
+  // account. We pivot into a "sign in to add this home" prompt rather
+  // than a hard error, because the right model is one account, two
+  // modes: an existing tradesman gaining a home should NOT create a
+  // second account.
+  const [emailTaken, setEmailTaken] = useState(false);
 
   const onSubmit = async () => {
     setError(null);
+    setEmailTaken(false);
     if (!picked) { setError('Pick an address from the suggestions.'); return; }
     if (!email.trim()) { setError('Email is required.'); return; }
     if (!password || password.length < 12) { setError('Password must be at least 12 characters.'); return; }
@@ -65,10 +72,34 @@ export function HomeownerSignupPage() {
       });
       navigate(`/home/${home.id}/confirm`);
     } catch (e) {
-      setError(e.data?.error || e.message || 'Could not create your account.');
+      // Email already in use — the user is an existing Smith account.
+      // Surface the "add to your account" path instead of a dead-end error.
+      if (e.status === 409 || /already in use/i.test(e.data?.error || '')) {
+        setEmailTaken(true);
+      } else {
+        setError(e.data?.error || e.message || 'Could not create your account.');
+      }
     } finally {
       setBusy(false);
     }
+  };
+
+  // Pack everything we collected on this screen into the sign-in next-url so
+  // /mode/setup-homeowner can resume right where we left off after auth.
+  // Use encodeURIComponent (not URLSearchParams) so spaces become %20, not
+  // `+` — our hash router's parser uses decodeURIComponent which leaves
+  // `+` literal.
+  const continueToSignIn = () => {
+    const enc = encodeURIComponent;
+    const parts = [
+      `place_id=${enc(picked.place_id)}`,
+      `address=${enc(addressText)}`,
+      `hiring_context=${enc(hiringContext)}`,
+    ];
+    if (entrySource === 'hire-me') parts.push(`entry_source=hire-me`);
+    if (proSlug) parts.push(`pro=${enc(proSlug)}`);
+    const next = `/mode/setup-homeowner?${parts.join('&')}`;
+    navigate(`/auth/signin?next=${enc(next)}&email=${enc(email.trim())}`);
   };
 
   const headline = entrySource === 'hire-me'
@@ -166,6 +197,33 @@ export function HomeownerSignupPage() {
           border: `1px solid ${B.danger}`, borderRadius: 6,
           padding: '8px 12px', marginBottom: 14, fontSize: 13,
         }}>{error}</div>
+      )}
+
+      {emailTaken && (
+        <div style={{
+          background: B.accentSoft, border: `1px solid ${B.accent}`,
+          borderRadius: 8, padding: '14px 16px', marginBottom: 14,
+        }}>
+          <div className="serif" style={{
+            color: B.text, fontSize: 14.5, fontWeight: 600,
+            letterSpacing: '-0.01em', marginBottom: 4,
+          }}>
+            You already have a Smith account.
+          </div>
+          <div style={{ color: B.dim, fontSize: 12.5, lineHeight: 1.5, marginBottom: 10 }}>
+            Smith is one account, two modes. Sign in and we'll add this home
+            to your existing profile — no second login.
+          </div>
+          <button
+            onClick={continueToSignIn}
+            style={{
+              background: B.accent, color: '#fff', border: 'none',
+              padding: '9px 16px', borderRadius: 100,
+              fontSize: 13, fontWeight: 600, cursor: 'pointer',
+            }}>
+            Sign in to add this home →
+          </button>
+        </div>
       )}
 
       <button

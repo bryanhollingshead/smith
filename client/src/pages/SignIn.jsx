@@ -18,17 +18,34 @@ import {
 import { useAuth } from '../lib/AuthContext.jsx';
 import { useRouter } from '../lib/router.jsx';
 
+// Only honor `?next=…` redirects that target our own app — never a full URL
+// or protocol-relative form. Cheap defense against open-redirect tomfoolery.
+function safeNext(raw) {
+  if (typeof raw !== 'string' || !raw) return null;
+  if (!raw.startsWith('/')) return null;
+  if (raw.startsWith('//')) return null;
+  return raw;
+}
+
 export function SignInPage() {
   const { signIn, loading } = useAuth();
-  const { navigate } = useRouter();
-  const [email, setEmail] = useState('');
+  const { navigate, params } = useRouter();
+  // Pre-fill email when the caller passed one (e.g. the "you already have a
+  // Smith account" banner on /auth/homeowner). next= lets that same path
+  // hand us back to /mode/setup-homeowner with the picked address.
+  const [email, setEmail] = useState(params.email || '');
   const [password, setPassword] = useState('');
   const [error, setError] = useState(null);
+  const next = safeNext(params.next);
 
   const submit = async () => {
     setError(null);
     try {
       const u = await signIn(email.trim(), password);
+      if (next) {
+        navigate(next, { replace: true });
+        return;
+      }
       navigate(u.onboarding_done ? '/feed' : '/onboarding');
     } catch (e) {
       setError(e.data?.error || e.message || 'Could not sign in');
