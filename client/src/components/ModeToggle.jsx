@@ -152,6 +152,24 @@ function Dropdown({ user, current, other, onPick, placement }) {
 }
 
 function Row({ user, mode, active, onPick }) {
+  // Sub-line varies based on whether the user already has a profile in that
+  // mode. Missing-profile rows read as a setup CTA — they double as a nudge
+  // for the tradesman-who-also-owns-a-home segment to discover homeowner mode.
+  const hasProfile = mode === MODE.HOMEOWNER
+    ? !!user?.profiles?.homeowner
+    : !!user?.profiles?.tradesman;
+
+  let title = labelForMode(user, mode);
+  let sub;
+  if (!hasProfile) {
+    sub = mode === MODE.HOMEOWNER ? 'Add your home →' : 'Add your trade →';
+  } else {
+    // Homeowner sub framing avoids "find a pro" — homeowner mode is a
+    // home-management / proptech experience; hiring pros is one feature
+    // among many, not the headline.
+    sub = mode === MODE.TRADESMAN ? 'Be found · find work' : 'Manage your home';
+  }
+
   return (
     <button onClick={onPick} style={{
       width: '100%', display: 'flex', alignItems: 'center', gap: 10,
@@ -168,10 +186,8 @@ function Row({ user, mode, active, onPick }) {
         <Icon name={iconForMode(mode)} size={12}/>
       </span>
       <div style={{ flex: 1 }}>
-        <div style={{ fontSize: 13, fontWeight: 600 }}>{labelForMode(user, mode)}</div>
-        <div style={{ color: B.faint, fontSize: 11, fontStyle: 'italic' }}>
-          {mode === MODE.TRADESMAN ? 'Be found · find work' : 'Find & hire pros'}
-        </div>
+        <div style={{ fontSize: 13, fontWeight: 600 }}>{title}</div>
+        <div style={{ color: B.faint, fontSize: 11, fontStyle: 'italic' }}>{sub}</div>
       </div>
       {active && <Icon name="check" size={13} stroke={3} style={{ color: B.accent }}/>}
     </button>
