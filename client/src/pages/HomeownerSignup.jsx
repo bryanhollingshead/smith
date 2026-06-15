@@ -3,10 +3,10 @@
 //
 // Route: /auth/homeowner — public. Query params allow the hire-me path to
 // pre-fill the address + smuggle entry_source + pro slug through:
-//   ?place_id=…&address=…&entry_source=hire-me&pro=marcus-…
+//   ?address=…&entry_source=hire-me&pro=marcus-…
 //
-// Submits create a homeowner account, mint the seed home, then route to
-// /home/:id/confirm.
+// Submits create a homeowner account, mint the seed home (server runs the
+// property-data lookup), then route to /home/:id/confirm.
 
 import React, { useEffect, useState } from 'react';
 import { B } from '../lib/theme.js';
@@ -21,15 +21,9 @@ export function HomeownerSignupPage() {
   const { navigate, params } = useRouter();
 
   const incomingAddress = params.address || '';
-  const incomingPlaceId = params.place_id || null;
   const entrySource = params.entry_source === 'hire-me' ? 'hire-me' : 'self-serve';
   const proSlug = params.pro || null;
 
-  const [picked, setPicked] = useState(
-    incomingPlaceId
-      ? { place_id: incomingPlaceId, main: incomingAddress.split(',')[0] || incomingAddress, sub: incomingAddress.split(',').slice(1).join(',').trim() }
-      : null
-  );
   const [addressText, setAddressText] = useState(incomingAddress);
   // One-tap hiring-context declaration. Drives the DISPLAYED mode label
   // ("Homeowner" vs "Property manager") — never stored as a label string,
@@ -51,7 +45,7 @@ export function HomeownerSignupPage() {
   const onSubmit = async () => {
     setError(null);
     setEmailTaken(false);
-    if (!picked) { setError('Pick an address from the suggestions.'); return; }
+    if (!addressText.trim()) { setError('Type your home address.'); return; }
     if (!email.trim()) { setError('Email is required.'); return; }
     if (!password || password.length < 12) { setError('Password must be at least 12 characters.'); return; }
     if (!terms) { setError('Please agree to the terms.'); return; }
@@ -63,10 +57,10 @@ export function HomeownerSignupPage() {
         role: 'homeowner',
         hiring_context: hiringContext,
       });
-      // Mint the seed home using the picked place + the records the server
-      // has on file (so the AddressFound screen has facts to show).
+      // Mint the seed home. Server runs the property-data lookup so the
+      // persisted row reflects what the provider actually returned.
       const { home } = await api.post('/homes', {
-        place_id: picked.place_id,
+        address: addressText.trim(),
         entry_source: entrySource,
         pending_pro_slug: proSlug,
       });
@@ -92,7 +86,6 @@ export function HomeownerSignupPage() {
   const continueToSignIn = () => {
     const enc = encodeURIComponent;
     const parts = [
-      `place_id=${enc(picked.place_id)}`,
       `address=${enc(addressText)}`,
       `hiring_context=${enc(hiringContext)}`,
     ];
@@ -160,13 +153,9 @@ export function HomeownerSignupPage() {
       />
 
       <AddressField
-        autoFocus={!incomingPlaceId}
+        autoFocus={!incomingAddress}
         value={addressText}
-        onChange={(t) => { setAddressText(t); }}
-        onPick={(item) => {
-          setPicked(item);
-          setAddressText(item.main + ', ' + item.sub.split(' · ')[0]);
-        }}
+        onChange={(t) => setAddressText(t)}
       />
       <EntryInput
         icon="mail" label="Email" type="email"

@@ -12,6 +12,7 @@ import React, { useEffect, useState } from 'react';
 import { B } from '../lib/theme.js';
 import { Icon } from '../components/Icon.jsx';
 import { Avatar, Photo } from '../components/Primitives.jsx';
+import { StreetView } from '../components/StreetView.jsx';
 import { LockedModule } from '../components/HomeownerEntry.jsx';
 import { useRouter } from '../lib/router.jsx';
 import { api } from '../lib/api.js';
@@ -160,13 +161,39 @@ export function SeedDashboardPage({ id }) {
   // keeps this component composable inside whatever shell wraps it.
   return (
     <>
-      {/* Hero */}
-      <div style={{ position: 'relative', height: 240, overflow: 'hidden' }}>
-        <Photo kind="frame" height="100%"/>
+      {/* Hero — Street View image with value-estimate chip overlay. */}
+      <div style={{ position: 'relative', overflow: 'hidden' }}>
+        {(home.latitude != null && home.longitude != null)
+          ? <StreetView lat={home.latitude} lng={home.longitude} width={1280} height={260} radius={0}/>
+          : <div style={{ height: 240 }}><Photo kind="frame" height="100%"/></div>
+        }
         <div style={{
           position: 'absolute', inset: 0,
           background: 'linear-gradient(180deg, rgba(42,31,23,0.08) 30%, rgba(42,31,23,0.82))',
+          pointerEvents: 'none',
         }}/>
+        {home.value_estimate != null && (
+          <div style={{
+            position: 'absolute', top: 18, right: 22,
+            background: 'rgba(255,255,255,0.96)',
+            border: `1px solid ${B.line}`, borderRadius: 8,
+            padding: '10px 14px', minWidth: 180,
+            boxShadow: '0 8px 24px rgba(42,31,23,0.18)',
+          }}>
+            <div style={{
+              color: B.dim, fontSize: 10, fontStyle: 'italic',
+              letterSpacing: '0.04em', textTransform: 'uppercase', fontWeight: 600,
+            }}>Estimated value</div>
+            <div className="serif" style={{
+              color: B.text, fontSize: 22, fontWeight: 600, letterSpacing: '-0.02em', marginTop: 2,
+            }}>{formatPrice(home.value_estimate)}</div>
+            {(home.value_estimate_low != null && home.value_estimate_high != null) && (
+              <div style={{ color: B.faint, fontSize: 11, marginTop: 2, fontStyle: 'italic' }}>
+                {formatPrice(home.value_estimate_low)} – {formatPrice(home.value_estimate_high)}
+              </div>
+            )}
+          </div>
+        )}
         <div style={{ position: 'absolute', left: 32, right: 32, bottom: 22 }}>
           <div style={{
             display: 'inline-flex', alignItems: 'center', gap: 8,

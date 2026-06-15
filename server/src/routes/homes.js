@@ -1,134 +1,69 @@
 // Smith — Homes (homeowner-acquisition) API
 //
-// Mints + manages the seed home profile from the four homeowner-entry
-// screens (HireMeEntry → HomeownerSignup → AddressFound → SeedDashboard).
+// Mints + manages the seed home profile from the homeowner-entry screens
+// (HireMeEntry / HomeownerSignup / ModeSetupHomeowner → AddressFound →
+// SeedDashboard).
 //
 // Endpoints in this file split between PUBLIC and AUTHED:
 //   Public (pre-signup, called from the entry screens):
-//     GET  /api/places/autocomplete?q=…       — stubbed Google Places result
-//     POST /api/places/records                — stubbed assessor + imagery pull
+//     POST /api/places/records          — provider lookup for a typed address;
+//                                         returns canonical address + facts +
+//                                         AVM value so the entry screens can
+//                                         preview the magic moment.
 //   Authed (post-signup, called from confirmation + dashboard):
-//     POST /api/homes                         — mint a seed home from confirmed facts
-//     GET  /api/homes/me/primary              — load current user's seed home (or 404)
-//     GET  /api/homes/:id                     — load one home (must be owner)
-//     PATCH /api/homes/:id                    — inline-edit a fact, confirm, etc.
+//     POST /api/homes                   — mint a seed home from a typed address
+//                                         (re-runs the provider call server-side
+//                                         so the persisted row matches truth).
+//     GET  /api/homes/me/primary        — load current user's seed home (or 404)
+//     GET  /api/homes/:id               — load one home (must be owner)
+//     PATCH /api/homes/:id              — inline-edit a fact, confirm, etc.
 //
-// The places/records endpoints are stubs — README explicitly defers wiring
-// the real providers (Google Places, ATTOM, Street View). They return data
-// shaped like the real providers so the swap is one-line later.
+// Provider: see server/src/services/property-data/. PROPERTY_PROVIDER picks
+// between rentcast (real) and stub (offline-dev/test). The provider call is
+// best-effort — if the upstream throws or times out, the home still mints on
+// whatever canonical address we have and the UI shows a "fetching details"
+// affordance instead of a hard error.
 
 import { Router } from 'express';
 import { q } from '../db.js';
 import { requireAuth } from '../middleware.js';
+import { lookupByAddress } from '../services/property-data/index.js';
 
 const router = Router();
 
-// ── Stubbed external data ─────────────────────────────────────────────────
-// All mock entries share the same lat/lon / neighborhood / fact pattern as
-// the design. The slug is the "place_id" — opaque on the client.
-
-const STUB_PLACES = [
-  // The canonical confirm-able address — the only one with full facts.
-  {
-    place_id: 'sl-847-e-9th-ave-84103',
-    address_line1: '847 E 9th Ave',
-    city: 'Salt Lake City', state: 'UT', postal_code: '84103',
-    neighborhood: 'The Avenues',
-  },
-  // Distractors so autocomplete reads right.
-  {
-    place_id: 'sl-847-e-9th-st-84105',
-    address_line1: '847 E 9th St',
-    city: 'Salt Lake City', state: 'UT', postal_code: '84105',
-    neighborhood: 'Liberty Wells',
-  },
-  {
-    place_id: 'sl-847-n-900-e-84102',
-    address_line1: '847 N 900 E',
-    city: 'Salt Lake City', state: 'UT', postal_code: '84102',
-    neighborhood: 'Capitol Hill',
-  },
-  {
-    place_id: 'sl-901-e-9th-ave-84103',
-    address_line1: '901 E 9th Ave',
-    city: 'Salt Lake City', state: 'UT', postal_code: '84103',
-    neighborhood: 'The Avenues',
-  },
-];
-
-// One mocked records set per known place_id. Only the canonical one has
-// full data; the others return enough to confirm the home but with sparser
-// facts — gives the AddressFound screen something realistic to render
-// regardless of which suggestion the user picks.
-const STUB_RECORDS = {
-  'sl-847-e-9th-ave-84103': {
-    year_built: 1924,
-    square_feet: 2840,
-    bedrooms: 4,
-    bathrooms: 2.5,
-    lot_acres: 0.18,
-    stories: '2 + basement',
-    last_sold_date: 'Sep 2022',
-    last_sold_price: 726000,
-    roof_material: 'Asphalt',
-    roof_year: 2021,
-    heating: 'Forced air · gas',
-    facts_source_attribution: 'Salt Lake County Assessor · est. 2024',
-    imagery: [
-      // Placeholder kinds — match Photo component variants. Real impl would
-      // be Street View Static URLs.
-      { kind: 'frame', caption: 'Street view · 2024', primary: true },
-      { kind: 'detail',   caption: 'Front elevation' },
-      { kind: 'workshop', caption: 'Side yard' },
-      { kind: 'concrete', caption: 'Driveway' },
-    ],
-  },
-};
-
-function recordsFor(place_id) {
-  return STUB_RECORDS[place_id] || {
-    facts_source_attribution: 'Public records · sparse coverage',
-    imagery: [{ kind: 'frame', caption: 'Approximate location', primary: true }],
-  };
+// Synthesize a stable dedup key from a canonical address. Old rows had
+// Google-Places-style opaque ids; now we just normalize the canonical
+// address into a slug-like string and reuse the place_id column for it.
+function synthesizePlaceId(addr) {
+  if (!addr) return null;
+  const norm = (s) => String(s || '').trim().toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+  return [norm(addr.state), norm(addr.postal_code), norm(addr.line1)]
+    .filter(Boolean)
+    .join('|');
 }
 
-// ── Public: address autocomplete ──────────────────────────────────────────
-router.get('/places/autocomplete', (req, res) => {
-  const term = String(req.query.q || '').trim().toLowerCase();
-  // Empty query → top result (the canonical demo address).
-  const matches = !term
-    ? STUB_PLACES.slice(0, 3)
-    : STUB_PLACES.filter(p => {
-        const hay = `${p.address_line1} ${p.city} ${p.neighborhood}`.toLowerCase();
-        return term.split(/\s+/).every(tok => hay.includes(tok));
-      });
-  res.json({
-    suggestions: matches.slice(0, 5).map(p => ({
-      place_id: p.place_id,
-      main: p.address_line1,
-      sub: `${p.city}, ${p.state} ${p.postal_code}${p.neighborhood ? ' · ' + p.neighborhood : ''}`,
-      _components: p, // mock-only: real Places call wouldn't return raw components
-    })),
-    // TODO: wire Google Places Autocomplete (replace STUB_PLACES + this handler)
-  });
-});
-
-// ── Public: assessor + imagery pull for a place_id ────────────────────────
-router.post('/places/records', (req, res) => {
-  const { place_id } = req.body || {};
-  if (!place_id) return res.status(400).json({ error: 'place_id required' });
-  const place = STUB_PLACES.find(p => p.place_id === place_id);
-  if (!place) return res.status(404).json({ error: 'Place not found' });
-  const records = recordsFor(place_id);
+// ── Public: provider lookup for a typed address ──────────────────────────
+// Body: { address: "847 E 9th Ave, Salt Lake City, UT 84103" }
+// Returns the canonical shape from the provider (or a degraded fallback if
+// the upstream failed — see services/property-data/index.js).
+router.post('/places/records', async (req, res) => {
+  const { address } = req.body || {};
+  if (!address || !String(address).trim()) {
+    return res.status(400).json({ error: 'address required' });
+  }
+  const result = await lookupByAddress(String(address).trim());
   res.json({
     place: {
-      place_id: place.place_id,
-      address_line1: place.address_line1,
-      city: place.city, state: place.state, postal_code: place.postal_code,
-      neighborhood: place.neighborhood,
+      ...result.canonical_address,
+      place_id: synthesizePlaceId(result.canonical_address),
+      latitude: result.latitude,
+      longitude: result.longitude,
     },
-    facts: records,
-    // TODO: wire ATTOM / Estated / CoreLogic for facts; Google Street View Static for imagery.
+    facts: result.facts,
+    value: result.value,
+    provider: result.provider,
+    attribution: result.attribution,
+    degraded: result.degraded,
   });
 });
 
@@ -142,6 +77,8 @@ function shapeHome(row) {
     city: row.city, state: row.state, postal_code: row.postal_code,
     neighborhood: row.neighborhood,
     place_id: row.place_id,
+    latitude: row.latitude != null ? Number(row.latitude) : null,
+    longitude: row.longitude != null ? Number(row.longitude) : null,
     year_built: row.year_built,
     square_feet: row.square_feet,
     bedrooms: row.bedrooms,
@@ -153,8 +90,13 @@ function shapeHome(row) {
     roof_material: row.roof_material,
     roof_year: row.roof_year,
     heating: row.heating,
+    value_estimate: row.value_estimate,
+    value_estimate_low: row.value_estimate_low,
+    value_estimate_high: row.value_estimate_high,
+    value_estimated_at: row.value_estimated_at,
     facts_source: row.facts_source,
     facts_source_attribution: row.facts_source_attribution,
+    facts_provider: row.facts_provider,
     entry_source: row.entry_source,
     pending_pro_slug: row.pending_pro_slug,
     confirmed_at: row.confirmed_at,
@@ -196,66 +138,69 @@ function deriveProgress(row) {
 }
 
 // ── Authed: mint the seed home ────────────────────────────────────────────
-// Body: { place_id, facts: {…records subset}, entry_source, pending_pro_slug }
+// Body: { address, entry_source, pending_pro_slug }
+//
+// We re-run the provider lookup server-side instead of trusting the client's
+// preview payload — that way the persisted row reflects what the provider
+// actually returned, not whatever the client posted. Cost is one extra
+// provider call per signup (a few cents), worth it for correctness.
 router.post('/homes', requireAuth, async (req, res) => {
-  const {
-    place_id, facts = {}, entry_source = 'self-serve', pending_pro_slug = null,
-  } = req.body || {};
-  if (!place_id) return res.status(400).json({ error: 'place_id required' });
-
-  // Re-resolve the place from the stub (no client trust on address shape).
-  const place = STUB_PLACES.find(p => p.place_id === place_id);
-  if (!place) return res.status(404).json({ error: 'Place not found' });
-  const records = recordsFor(place_id);
-
-  // Most users get one home. If they already minted one (e.g. they bailed
-  // mid-flow and restarted), reuse it — don't pile up unconfirmed rows.
-  // Match by place_id so a user with two homes at different addresses can
-  // still mint distinct rows.
-  const existing = await q(
-    `SELECT * FROM homes WHERE owner_user_id = $1 AND place_id = $2 LIMIT 1`,
-    [req.userId, place_id]
-  );
-  if (existing.rowCount) {
-    return res.status(200).json({ home: shapeHome(existing.rows[0]) });
+  const { address, entry_source = 'self-serve', pending_pro_slug = null } = req.body || {};
+  if (!address || !String(address).trim()) {
+    return res.status(400).json({ error: 'address required' });
   }
+
+  const result = await lookupByAddress(String(address).trim());
+  const canonical = result.canonical_address;
+  const placeId = synthesizePlaceId(canonical);
+
+  // Reuse an existing home at the same place — bailed-mid-flow restarts
+  // should land back in the same row, not pile up unconfirmed duplicates.
+  if (placeId) {
+    const existing = await q(
+      `SELECT * FROM homes WHERE owner_user_id = $1 AND place_id = $2 LIMIT 1`,
+      [req.userId, placeId]
+    );
+    if (existing.rowCount) {
+      return res.status(200).json({ home: shapeHome(existing.rows[0]) });
+    }
+  }
+
+  const facts = result.facts || {};
+  const value = result.value || {};
+  const valuedAt = result.value ? new Date() : null;
+  const factsSource = result.degraded ? 'stub' : 'public_records';
 
   const { rows } = await q(
     `INSERT INTO homes (
        owner_user_id,
        address_line1, city, state, postal_code, neighborhood,
-       place_id,
+       place_id, latitude, longitude,
        year_built, square_feet, bedrooms, bathrooms, lot_acres, stories,
        last_sold_date, last_sold_price, roof_material, roof_year, heating,
-       facts_source, facts_source_attribution,
+       value_estimate, value_estimate_low, value_estimate_high, value_estimated_at,
+       facts_source, facts_source_attribution, facts_provider,
        entry_source, pending_pro_slug
      )
      VALUES (
        $1,
        $2, $3, $4, $5, $6,
-       $7,
-       $8, $9, $10, $11, $12, $13,
-       $14, $15, $16, $17, $18,
-       'public_records', $19,
-       $20, $21
+       $7, $8, $9,
+       $10, $11, $12, $13, $14, $15,
+       $16, $17, $18, $19, $20,
+       $21, $22, $23, $24,
+       $25, $26, $27,
+       $28, $29
      )
      RETURNING *`,
     [
       req.userId,
-      place.address_line1, place.city, place.state, place.postal_code, place.neighborhood,
-      place.place_id,
-      facts.year_built       ?? records.year_built       ?? null,
-      facts.square_feet      ?? records.square_feet      ?? null,
-      facts.bedrooms         ?? records.bedrooms         ?? null,
-      facts.bathrooms        ?? records.bathrooms        ?? null,
-      facts.lot_acres        ?? records.lot_acres        ?? null,
-      facts.stories          ?? records.stories          ?? null,
-      facts.last_sold_date   ?? records.last_sold_date   ?? null,
-      facts.last_sold_price  ?? records.last_sold_price  ?? null,
-      facts.roof_material    ?? records.roof_material    ?? null,
-      facts.roof_year        ?? records.roof_year        ?? null,
-      facts.heating          ?? records.heating          ?? null,
-      records.facts_source_attribution || null,
+      canonical.line1, canonical.city, canonical.state, canonical.postal_code, canonical.neighborhood,
+      placeId, result.latitude, result.longitude,
+      facts.year_built, facts.square_feet, facts.bedrooms, facts.bathrooms, facts.lot_acres, facts.stories,
+      facts.last_sold_date, facts.last_sold_price, facts.roof_material, facts.roof_year, facts.heating,
+      value.estimate ?? null, value.low ?? null, value.high ?? null, valuedAt,
+      factsSource, result.attribution || null, result.provider,
       entry_source === 'hire-me' ? 'hire-me' : 'self-serve',
       entry_source === 'hire-me' ? (pending_pro_slug || null) : null,
     ]

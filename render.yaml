@@ -104,6 +104,21 @@ services:
       - key: CLIENT_ORIGIN
         value: "*"
 
+      # Property data provider (Rentcast). Production should run on the
+      # real provider; switch to 'stub' only if you need to disable upstream
+      # calls during an incident.
+      - key: PROPERTY_PROVIDER
+        value: rentcast
+      - key: RENTCAST_API_KEY
+        sync: false
+
+      # Google Maps Platform key for Street View Static images. This is a
+      # CLIENT-side key (Vite injects VITE_* into the bundle at build time)
+      # — restrict it in Google Cloud Console to HTTP referrers smith.app/*
+      # and *.smith.app/* and to the Street View Static API only.
+      - key: VITE_GOOGLE_MAPS_KEY
+        sync: false
+
 databases:
   - name: smith-db
     plan: basic-256mb             # 1GB storage, 256MB RAM — fine for launch

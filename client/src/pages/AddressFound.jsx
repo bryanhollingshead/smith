@@ -10,8 +10,8 @@
 import React, { useEffect, useState } from 'react';
 import { B } from '../lib/theme.js';
 import { Icon } from '../components/Icon.jsx';
-import { Photo } from '../components/Primitives.jsx';
 import { ChromeWordmark } from '../components/HomeownerEntry.jsx';
+import { StreetView } from '../components/StreetView.jsx';
 import { useRouter } from '../lib/router.jsx';
 import { api } from '../lib/api.js';
 
@@ -120,31 +120,27 @@ export function AddressFoundPage({ id }) {
             background: B.surface, border: `1px solid ${B.line}`, borderRadius: 10,
             overflow: 'hidden', boxShadow: '0 12px 40px rgba(42,31,23,0.10)',
           }}>
-            {/* Imagery band */}
-            <div style={{ position: 'relative', height: 300 }}>
-              <Photo kind="frame" height="100%"/>
+            {/* Imagery band — Google Street View, falls back to a polite
+                placeholder if the address has no street imagery. */}
+            <div style={{ position: 'relative' }}>
+              <StreetView
+                lat={displayHome.latitude}
+                lng={displayHome.longitude}
+                width={920}
+                height={340}
+                radius={0}
+              />
               <div style={{
                 position: 'absolute', inset: 0,
-                background: 'linear-gradient(180deg, rgba(42,31,23,0) 55%, rgba(42,31,23,0.55))',
+                background: 'linear-gradient(180deg, rgba(42,31,23,0) 55%, rgba(42,31,23,0.65))',
+                pointerEvents: 'none',
               }}/>
               <div style={{ position: 'absolute', top: 14, left: 14, display: 'flex', gap: 6 }}>
-                {['Street view · 2024', '3 photos found'].map(c => (
-                  <span key={c} style={{
-                    background: 'rgba(14,19,16,0.6)', backdropFilter: 'blur(6px)',
-                    color: '#fff', fontSize: 11, fontWeight: 600,
-                    padding: '5px 10px', borderRadius: 100,
-                  }}>{c}</span>
-                ))}
-              </div>
-              <div style={{ position: 'absolute', bottom: 14, right: 14, display: 'flex', gap: 6 }}>
-                {['detail', 'workshop', 'concrete'].map((k, i) => (
-                  <div key={i} style={{
-                    width: 56, height: 42, borderRadius: 4, overflow: 'hidden',
-                    border: '2px solid rgba(255,255,255,0.6)',
-                  }}>
-                    <Photo kind={k} height={42}/>
-                  </div>
-                ))}
+                <span style={{
+                  background: 'rgba(14,19,16,0.6)', backdropFilter: 'blur(6px)',
+                  color: '#fff', fontSize: 11, fontWeight: 600,
+                  padding: '5px 10px', borderRadius: 100,
+                }}>Street view</span>
               </div>
               <div style={{ position: 'absolute', left: 18, bottom: 16, color: '#fff' }}>
                 <div className="serif" style={{ fontSize: 26, fontWeight: 600, letterSpacing: '-0.02em' }}>
@@ -156,6 +152,40 @@ export function AddressFoundPage({ id }) {
                 </div>
               </div>
             </div>
+
+            {/* Value-estimate band — the magic moment. Hidden when the
+                provider couldn't return an AVM (sparse coverage / failure). */}
+            {displayHome.value_estimate != null && (
+              <div style={{
+                padding: '20px 26px',
+                borderBottom: `1px solid ${B.line}`,
+                display: 'flex', alignItems: 'baseline', gap: 16,
+                background: B.accentSoft,
+              }}>
+                <div style={{ flex: 1 }}>
+                  <div style={{
+                    color: B.dim, fontSize: 11, fontStyle: 'italic',
+                    letterSpacing: '0.04em', textTransform: 'uppercase', fontWeight: 600,
+                  }}>Estimated value</div>
+                  <div className="serif" style={{
+                    color: B.text, fontSize: 34, fontWeight: 600, letterSpacing: '-0.025em',
+                    marginTop: 2,
+                  }}>
+                    {formatPrice(displayHome.value_estimate)}
+                  </div>
+                </div>
+                {(displayHome.value_estimate_low != null && displayHome.value_estimate_high != null) && (
+                  <div style={{ textAlign: 'right' }}>
+                    <div style={{ color: B.dim, fontSize: 11, fontStyle: 'italic' }}>
+                      Range (85% conf.)
+                    </div>
+                    <div style={{ color: B.text, fontSize: 14, fontWeight: 600, marginTop: 2 }}>
+                      {formatPrice(displayHome.value_estimate_low)} – {formatPrice(displayHome.value_estimate_high)}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Facts band */}
             <div style={{ padding: '22px 26px' }}>

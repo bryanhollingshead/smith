@@ -129,62 +129,28 @@ export function EntryInput({ icon, label, hint, error, value, onChange, disabled
 }
 
 // ── AddressField ──────────────────────────────────────────────────────────
-// Driven off /api/places/autocomplete. Picks emit (placeId, full place
-// object) via onPick. Initial-focus dropdown opens automatically so the
-// design's "first result highlighted" frame appears the moment the
-// homeowner hits the screen.
+// Free-text address input. The property-data provider (Rentcast) handles
+// canonical normalization on the server, so we don't need client-side
+// autocomplete to ship the magic moment. A Google Places autocomplete UX
+// can swap in later behind this same component without touching callers.
+//
+// Contract:
+//   onChange(text)  — fires as the user types
+//   onSubmit?(text) — fires on Enter; callers can use this to advance step
 export function AddressField({
-  value, onChange, onPick, autoFocus = true, label = "Your home address",
+  value, onChange, onSubmit, autoFocus = true, label = "Your home address",
 }) {
   const [text, setText] = useState(value || '');
-  const [open, setOpen] = useState(false);
-  const [items, setItems] = useState([]);
-  const [picked, setPicked] = useState(null);
+  const [focused, setFocused] = useState(false);
   const inputRef = useRef(null);
-  const skipFetch = useRef(false);
 
   useEffect(() => {
-    if (autoFocus && inputRef.current) {
-      inputRef.current.focus();
-      setOpen(true);
-    }
+    if (autoFocus && inputRef.current) inputRef.current.focus();
   }, [autoFocus]);
 
   useEffect(() => {
-    // External controlled value sync — but skip when we just programmatically
-    // set text (after a pick) to avoid re-firing the autocomplete request.
-    if (value != null && value !== text) {
-      skipFetch.current = true;
-      setText(value);
-    }
+    if (value != null && value !== text) setText(value);
   }, [value]);
-
-  useEffect(() => {
-    if (skipFetch.current) { skipFetch.current = false; return; }
-    let cancelled = false;
-    const handle = setTimeout(async () => {
-      try {
-        const res = await fetch(`/api/places/autocomplete?q=${encodeURIComponent(text)}`);
-        if (!res.ok) throw new Error('bad');
-        const data = await res.json();
-        if (!cancelled) setItems(data.suggestions || []);
-      } catch {
-        if (!cancelled) setItems([]);
-      }
-    }, 90);
-    return () => { cancelled = true; clearTimeout(handle); };
-  }, [text]);
-
-  const pick = (item) => {
-    setPicked(item);
-    skipFetch.current = true;
-    setText(item.main + ', ' + item.sub.split(' · ')[0]);
-    setOpen(false);
-    onPick?.(item);
-  };
-
-  // First non-picked suggestion is "the highlight" — matches the design.
-  const highlightId = picked?.place_id || items[0]?.place_id;
 
   return (
     <div style={{ position: 'relative', marginBottom: 16 }}>
@@ -195,66 +161,34 @@ export function AddressField({
       <div style={{
         display: 'flex', alignItems: 'center', gap: 10,
         background: B.surface,
-        border: `1px solid ${open ? B.accent : B.line}`,
+        border: `1px solid ${focused ? B.accent : B.line}`,
         borderRadius: 8, padding: '13px 15px',
-        boxShadow: open ? `0 0 0 3px ${B.accentSoft}` : 'none',
+        boxShadow: focused ? `0 0 0 3px ${B.accentSoft}` : 'none',
         transition: 'box-shadow 120ms ease, border-color 120ms ease',
       }}>
-        <Icon name="mappin" size={16} style={{ color: open ? B.accent : B.dim }}/>
+        <Icon name="mappin" size={16} style={{ color: focused ? B.accent : B.dim }}/>
         <input
           ref={inputRef}
           value={text}
-          placeholder="Start typing your address…"
+          placeholder="123 Main St, Salt Lake City, UT 84103"
           onChange={(e) => {
             setText(e.target.value);
-            setPicked(null);
             onChange?.(e.target.value);
-            setOpen(true);
           }}
-          onFocus={() => setOpen(true)}
-          onBlur={() => setTimeout(() => setOpen(false), 150)} // delay so click on suggestion lands
+          onFocus={() => setFocused(true)}
+          onBlur={() => setFocused(false)}
+          onKeyDown={(e) => { if (e.key === 'Enter' && text.trim()) onSubmit?.(text.trim()); }}
           style={{
             flex: 1, background: 'transparent', border: 'none', outline: 'none',
             color: B.text, fontSize: 15, fontFamily: 'inherit',
           }}/>
       </div>
-      {open && items.length > 0 && (
-        <div style={{
-          position: 'absolute', left: 0, right: 0, top: 'calc(100% + 6px)',
-          background: B.surface, border: `1px solid ${B.line}`, borderRadius: 8,
-          boxShadow: '0 12px 32px rgba(42,31,23,0.14)', overflow: 'hidden', zIndex: 5,
-        }}>
-          {items.map((a, i) => {
-            const isHighlight = a.place_id === highlightId;
-            return (
-              <div
-                key={a.place_id}
-                onMouseDown={(e) => { e.preventDefault(); pick(a); }}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: 12,
-                  padding: '11px 15px',
-                  borderTop: i ? `1px solid ${B.line}` : 'none',
-                  background: isHighlight ? B.accentSoft : 'transparent',
-                  cursor: 'pointer',
-                }}>
-                <Icon name="mappin" size={14} style={{ color: isHighlight ? B.accent : B.faint }}/>
-                <div style={{ flex: 1 }}>
-                  <div style={{ color: B.text, fontSize: 13.5, fontWeight: 600 }}>{a.main}</div>
-                  <div style={{ color: B.faint, fontSize: 11.5, fontStyle: 'italic' }}>{a.sub}</div>
-                </div>
-                {isHighlight && <Icon name="check" size={14} stroke={3} style={{ color: B.accent }}/>}
-              </div>
-            );
-          })}
-          <div style={{
-            padding: '8px 15px', borderTop: `1px solid ${B.line}`,
-            fontSize: 11, color: B.faint, display: 'flex', alignItems: 'center', gap: 6,
-            fontStyle: 'italic',
-          }}>
-            <Icon name="shield" size={11}/> Powered by public address records
-          </div>
-        </div>
-      )}
+      <div style={{
+        fontSize: 11, color: B.faint, marginTop: 6,
+        fontStyle: 'italic', display: 'flex', alignItems: 'center', gap: 6,
+      }}>
+        <Icon name="shield" size={11}/> We'll pull public records & a Street View photo
+      </div>
     </div>
   );
 }

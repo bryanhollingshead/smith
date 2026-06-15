@@ -6,8 +6,8 @@
 //       PATCH /api/auth/me/mode).
 //   (b) An existing tradesman tried to sign up at /auth/homeowner; we
 //       caught the 409, redirected them through /auth/signin with a
-//       `next=/mode/setup-homeowner?place_id=…&hiring_context=…&…`
-//       URL so the picked address + intent survive the sign-in hop.
+//       `next=/mode/setup-homeowner?address=…&hiring_context=…&…`
+//       URL so the typed address + intent survive the sign-in hop.
 //
 // Reuses AddressField + HiringContextChoice + POST /api/homes from the
 // public homeowner-signup path, minus credentials (we're already authed).
@@ -28,31 +28,27 @@ export function ModeSetupHomeownerPage() {
   const { navigate, params } = useRouter();
   const { refresh, switchMode } = useAuth();
 
-  // Pre-fill from URL — when present, the caller already picked an address
-  // (typically the resume-after-signin path from /auth/homeowner). We skip
-  // the AddressField and confirm-on-one-tap instead.
-  const incomingPlaceId   = params.place_id || null;
+  // Pre-fill from URL — when present, the caller already typed an address
+  // (typically the resume-after-signin path from /auth/homeowner).
   const incomingAddress   = params.address || '';
   const incomingHiringIn  = params.hiring_context === 'property_manager' ? 'property_manager' : 'own_home';
-  const hasPrefill        = !!incomingPlaceId;
+  const hasPrefill        = !!incomingAddress;
 
-  const [picked, setPicked] = useState(
-    hasPrefill ? { place_id: incomingPlaceId, main: incomingAddress, sub: '' } : null
-  );
+  const [addressText, setAddressText] = useState(incomingAddress);
   const [hiringContext, setHiringContext] = useState(incomingHiringIn);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
 
   const onSubmit = async () => {
     setError(null);
-    if (!picked) { setError('Pick an address from the suggestions.'); return; }
+    if (!addressText.trim()) { setError('Type your home address.'); return; }
     setBusy(true);
     try {
       // Save hiring_context first so the label is right the moment the
       // seed home renders.
       await api.patch('/profiles/me', { hiring_context: hiringContext });
       const { home } = await api.post('/homes', {
-        place_id: picked.place_id,
+        address: addressText.trim(),
         entry_source: 'self-serve',
       });
       // Idempotently flip the persisted mode to homeowner. If the user was
@@ -129,7 +125,7 @@ export function ModeSetupHomeownerPage() {
           {hasPrefill ? (
             <PrefilledAddress addressText={incomingAddress}/>
           ) : (
-            <AddressField onPick={setPicked}/>
+            <AddressField value={addressText} onChange={setAddressText}/>
           )}
 
           {error && (
@@ -142,14 +138,14 @@ export function ModeSetupHomeownerPage() {
 
           <button
             onClick={onSubmit}
-            disabled={busy || !picked}
+            disabled={busy || !addressText.trim()}
             style={{
               width: '100%', marginTop: 26,
               background: B.text, color: B.surface, border: 'none',
               padding: '15px', borderRadius: 100,
               fontSize: 15, fontWeight: 600,
-              cursor: busy || !picked ? 'not-allowed' : 'pointer',
-              opacity: busy || !picked ? 0.55 : 1,
+              cursor: busy || !addressText.trim() ? 'not-allowed' : 'pointer',
+              opacity: busy || !addressText.trim() ? 0.55 : 1,
               display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8,
             }}>
             {busy ? 'Adding…' : (hasPrefill ? 'Add this home' : 'Find my home')}{' '}

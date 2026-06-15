@@ -15,7 +15,7 @@ import { useRouter } from '../lib/router.jsx';
 export function HireMeEntryPage({ slug }) {
   const { navigate } = useRouter();
   const [pro, setPro] = useState(null);
-  const [picked, setPicked] = useState(null);
+  const [addressText, setAddressText] = useState('');
 
   useEffect(() => {
     let cancelled = false;
@@ -36,10 +36,9 @@ export function HireMeEntryPage({ slug }) {
   const fullName = pro?.name || 'this Smith';
 
   const onContinue = () => {
-    if (!picked) return;
+    if (!addressText.trim()) return;
     const qs = new URLSearchParams({
-      place_id: picked.place_id,
-      address: picked.main + ', ' + picked.sub.split(' · ')[0],
+      address: addressText.trim(),
       entry_source: 'hire-me',
       pro: slug,
     });
@@ -99,19 +98,19 @@ export function HireMeEntryPage({ slug }) {
         Your address scopes the job and confirms {firstName} covers your area. We'll start a private home profile — only you control who sees it.
       </p>
 
-      <AddressField onPick={(item) => setPicked(item)}/>
+      <AddressField value={addressText} onChange={setAddressText}/>
 
       <div style={{ marginTop: 76 }}>
         <button
           onClick={onContinue}
-          disabled={!picked}
+          disabled={!addressText.trim()}
           style={{
             width: '100%',
             background: B.text, color: B.surface, border: 'none',
             padding: '15px', borderRadius: 100,
             fontSize: 15, fontWeight: 600,
-            cursor: picked ? 'pointer' : 'not-allowed',
-            opacity: picked ? 1 : 0.55,
+            cursor: addressText.trim() ? 'pointer' : 'not-allowed',
+            opacity: addressText.trim() ? 1 : 0.55,
             display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8,
           }}>
           Continue to {firstName} <Icon name="arrow-r" size={15} stroke={2.4}/>
