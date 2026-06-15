@@ -10,16 +10,10 @@
 //   - Sending connection requests to demos (and demos sending them)
 //   - Creating message threads with demos
 //   - Sending messages in any thread where the peer is a demo
-//   - Signing in AS a demo account (no one should ever auth as a demo)
+// Signin AS a demo is NOT blocked — admins can set a demo password via the
+// admin-users routes and sign in to test flows.
 
 import { q } from './db.js';
-
-/** Returns TRUE if userId is flagged as a demo. */
-export async function isDemo(userId) {
-  if (!userId) return false;
-  const { rows } = await q('SELECT is_demo FROM users WHERE id = $1', [userId]);
-  return !!rows[0]?.is_demo;
-}
 
 /**
  * Returns TRUE if either user is a demo. Use this for symmetric blocks

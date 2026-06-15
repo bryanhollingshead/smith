@@ -17,9 +17,9 @@ import 'dotenv/config';
 import { pool, q, tx } from './db.js';
 import { hashPassword } from './auth-utils.js';
 
-// Demo accounts use an obviously-fake password since no one should ever sign
-// in as them. The backend ALSO prevents signin for is_demo users (defense in
-// depth — see seed-demo precondition + the demo-signin block in routes/auth.js).
+// Demo accounts seed with a throwaway random password. Admins set a known
+// password via /api/admin/users/:id/password when they need to sign in as
+// a demo to exercise a flow.
 const DEMO_PASSWORD = 'demo-account-' + Math.random().toString(36).slice(2);
 
 // Avatar tone for demos: a consistent "demo" cream so they read visually

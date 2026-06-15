@@ -37,6 +37,7 @@ import { SignUpStartPage } from './pages/SignUpStart.jsx';
 import { ModeSetupHomeownerPage } from './pages/ModeSetupHomeowner.jsx';
 import { ModeSetupTradesmanPage } from './pages/ModeSetupTradesman.jsx';
 import { HomeownerShell } from './components/HomeownerShell.jsx';
+import { ImpersonationBanner } from './components/AdminTools.jsx';
 import { modeOf, MODE } from './lib/mode.js';
 
 export function App() {
@@ -101,9 +102,12 @@ export function App() {
   const homeConfirmMatchTop = match('/home/:id/confirm', path);
   if (homeConfirmMatchTop) {
     return (
-      <MessagesProvider>
-        <AddressFoundPage id={homeConfirmMatchTop.id}/>
-      </MessagesProvider>
+      <>
+        <ImpersonationBanner/>
+        <MessagesProvider>
+          <AddressFoundPage id={homeConfirmMatchTop.id}/>
+        </MessagesProvider>
+      </>
     );
   }
 
@@ -112,9 +116,12 @@ export function App() {
   // TopNav + route tree.
   if (modeOf(user) === MODE.HOMEOWNER) {
     return (
-      <MessagesProvider>
-        <HomeownerShell/>
-      </MessagesProvider>
+      <>
+        <ImpersonationBanner/>
+        <MessagesProvider>
+          <HomeownerShell/>
+        </MessagesProvider>
+      </>
     );
   }
 
@@ -123,6 +130,8 @@ export function App() {
   // tree in MessagesProvider so the websocket opens once and the nav badge
   // updates everywhere.
   return (
+    <>
+    <ImpersonationBanner/>
     <MessagesProvider>
       {(() => {
         if (path === '/' || path === '/feed') return <FeedPage/>;
@@ -187,5 +196,6 @@ export function App() {
         );
       })()}
     </MessagesProvider>
+    </>
   );
 }

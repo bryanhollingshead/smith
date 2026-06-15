@@ -12,6 +12,7 @@ import { Icon } from './Icon.jsx';
 import { SmithLogo } from './Primitives.jsx';
 import { SmithAvatar } from './SmithAvatar.jsx';
 import { ModeToggle } from './ModeToggle.jsx';
+import { AdminMenuItems, AdminModals } from './AdminTools.jsx';
 
 export function TopNav({ active }) {
   const { navigate } = useRouter();
@@ -19,6 +20,7 @@ export function TopNav({ active }) {
   const { unread: unreadMessages } = useMessages();
   const [unread, setUnread] = useState(0);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [adminModal, setAdminModal] = useState(null); // 'view-as' | 'set-password' | null
   const menuRef = useRef(null);
 
   // Fetch this user's profile once so we can show their uploaded avatar.
@@ -150,12 +152,19 @@ export function TopNav({ active }) {
             }} className="fade-in">
               <MenuItem icon="user" onClick={() => { setMenuOpen(false); navigate('/profile'); }}>My profile</MenuItem>
               <MenuItem icon="edit" onClick={() => { setMenuOpen(false); navigate('/profile/edit'); }}>Edit profile</MenuItem>
+              {user?.is_admin && (
+                <>
+                  <div style={{ height: 1, background: B.line, margin: '6px 0' }}/>
+                  <AdminMenuItems onPick={(kind) => { setMenuOpen(false); setAdminModal(kind); }}/>
+                </>
+              )}
               <div style={{ height: 1, background: B.line, margin: '6px 0' }}/>
               <MenuItem icon="logout" onClick={() => { setMenuOpen(false); signOut(); }}>Sign out</MenuItem>
             </div>
           )}
         </div>
       </div>
+      {adminModal && <AdminModals kind={adminModal} onClose={() => setAdminModal(null)}/>}
     </header>
   );
 }
