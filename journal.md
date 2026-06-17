@@ -1165,6 +1165,12 @@ psql $DATABASE_URL -c "UPDATE users SET email_verified = TRUE WHERE email = 'the
 
 ## ⏸ Open — when ready (no urgency)
 
+### Rotate Rentcast API key (low priority — exposure was low, not zero)
+**Status (2026-06-17):** Key `85efb…` got read into a Claude Code conversation transcript on 2026-06-15 when a corrupted `server/.env` had to be `cat`'d to diagnose a paste-script failure. Not committed, not pushed, not in any public location — but it sat in a conversation context that's reviewable by Anthropic. Bryan decided the exposure is low enough to defer rotation. When you do rotate:
+1. https://app.rentcast.io → API → Regenerate
+2. Update `server/.env` locally + Render env var
+3. Manual Deploy on Render to pick up the new key
+
 ### Wire real address autocomplete + property records (priority — Bryan wants this next)
 **Status (2026-06-11):** Stubbed during phase 6 — `STUB_PLACES` only returns
 three SLC matches around 847 E 9th Ave, so any real address (Bryan's test
