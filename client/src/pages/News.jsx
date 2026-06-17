@@ -106,7 +106,7 @@ export function NewsPage() {
             <h1 className="serif" style={{
               color: B.text, fontSize: 40, fontWeight: 600, margin: 0,
               letterSpacing: '-0.025em', lineHeight: 1,
-            }}>The Trade</h1>
+            }}>Sparks from the Forge</h1>
             <p style={{
               color: B.dim, fontSize: 15, margin: '8px 0 0',
               fontStyle: 'italic',

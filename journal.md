@@ -1263,6 +1263,81 @@ real-estate tokenization — now contextualized as not just resale, but
 the funding/coordination mechanism for the new-construction and
 neighborhood-design phases.
 
+### Smith gods — archetypal craft, alchemical fire, the brand's mythic substrate (2026-06-17, Bryan)
+
+Bryan: *"Smith gods to me are gateways into the alchemical tradition of
+power of fire to illuminate and fuel progress. The creative power of
+the Smith god archetype as builders and creators par excellence is an
+animating principle and power I want woven into the brand."*
+
+**The premise.** Every civilization has a smith god — Hephaestus
+(Greek), Vulcan (Roman), Ilmarinen (Finnish), Goibniu (Celtic), Ogun
+(Yoruba), Ptah (Egyptian), Wayland (Germanic), Tvashtar (Vedic). They
+are the archetypal builders and creators, the keepers of the fire that
+transmutes raw earth into refined matter. The name *Smith* already
+carries this; the question is how to make it explicit across the
+platform without it feeling like a gimmick.
+
+**Six layers of infusion, lightest to heaviest.** Captured here as the
+brand's working palette — Bryan picks what resonates as the platform
+matures.
+
+**1. The Pantheon as canonical demo cast.** The existing "Smith God"
+demo accounts (phase 1, already shipped) get reframed as actual smith
+gods of multiple cultural traditions. "Vulcan Rome" and "Ptah Memphis"
+test accounts that Bryan has already used signal he's feeling this. A
+new visitor encountering the demos meets a pantheon, not "Test User 1."
+Coverage across traditions signals "Smith is for the people who build,
+across all of history."
+
+**2. Lexicon over decoration.** Smith-rooted verbs in microcopy only
+where they ADD weight, never as gimmick. "Forge" your profile, "Strike"
+a milestone, the home feed as "The Forge" or "The Hearth" with empty
+states like *"cold forge — what will you build?"* Apprentice / Journeyman
+/ Master are already in the schema as progression states; honor them.
+Done with restraint, the product feels like it has lineage instead of
+a UX kit.
+
+**3. Alchemical project stages.** Project lifecycle echoes the
+alchemical arc — *Prima Materia* (concept) → *Calcination* (demo / prep)
+→ *Coagulation* (build) → *Rubedo* (finished). Subtle, used as section
+labels or progress markers. Most users won't consciously notice; the
+ones who do feel something the LinkedIn-for-trades clone can never
+replicate.
+
+**4. The Marks system.** Earned digital sigils craftspeople display on
+their profile — like guild marks of old. "The Mark of Ilmarinen" on a
+master carpenter's profile means something specific (e.g. 50 verified
+projects in framing/millwork). Bridges to physical: stickers / decals /
+patches a tradesperson earns and displays on tool box, hard hat, truck.
+**This is the move that roots digital identity in the physical world**
+— directly on-vision with theme 3 (communities close and connected)
+and the destination's "design + community + connection" themes.
+
+**5. The Landing as manifesto.** Marketing page names the lineage out
+loud: *"Every civilization has its smith. Hephaestus. Ilmarinen.
+Goibniu. Ogun. Ptah. The fire was passed forward. Now it's your turn."*
+Roots Smith in five thousand years of craft worship instead of the
+last fifteen years of platform startups.
+
+**6. Editorial channel — "Sparks from the Forge."** The news module
+(previously titled "The Trade") is renamed to **Sparks from the Forge**.
+Beyond the rename, the module hosts a recurring slot for stories about
+historical master craftspeople, ancient techniques still in use,
+alchemical tradition meeting modern construction. Cheap to produce
+(short pieces, weekly cadence), enormous brand return, slowly schools
+the userbase into the mythology.
+
+**Order of leverage to pursue.** Pantheon-as-demo-cast (small change,
+immediately visible to every new visitor) → Forge/Hearth lexicon (touches
+every screen) → Marks system (the durable digital-physical identity
+piece). Manifesto and editorial column are higher-ceremony moves to make
+once the underlying mythology is felt across the product.
+
+**Shipped today (2026-06-17):** News section + feed-sidebar rail
+renamed to **"Sparks from the Forge."** First of these layers in
+production.
+
 **Note (vision doc needed).** The "context-to-write" list above
 (docs/domain-model.md, roles-and-permissions.md, product-principles.md,
 integration-roadmap.md) was framed around build-unblocking docs. It

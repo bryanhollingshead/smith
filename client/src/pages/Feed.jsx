@@ -383,7 +383,7 @@ function NewsRail() {
         <h3 className="serif" style={{
           margin: 0, fontSize: 16, fontWeight: 600,
           color: B.text, letterSpacing: '-0.01em',
-        }}>The Trade · industry news</h3>
+        }}>Sparks from the Forge · industry news</h3>
         <button onClick={() => navigate('/news')} style={{
           background: 'transparent', border: 'none', padding: 0,
           color: B.accent, fontSize: 11, fontWeight: 600, cursor: 'pointer',
