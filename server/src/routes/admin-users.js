@@ -10,6 +10,8 @@
 //   POST   /api/admin/users/:id/impersonate  mint a JWT for the target demo
 //   POST   /api/admin/users/:id/password     set a known password on the demo
 //   DELETE /api/admin/users/:id              hard-delete any user except self
+//   GET    /api/admin/homes                  list ALL homes (for the home-delete picker)
+//   DELETE /api/admin/homes/:id              hard-delete one home (owner stays)
 //
 // The impersonate + password routes 404 if the target isn't is_demo (admin
 // can never log in as or rewrite a real user's password).
@@ -157,6 +159,54 @@ router.delete('/admin/users/:id', requireAuth, requireAdmin, async (req, res) =>
     `[admin] user_id=${req.userId} deleted target_user_id=${targetId} email=${rows[0].email}`
   );
   res.json({ ok: true, deleted_user_id: targetId, email: rows[0].email });
+});
+
+// ── GET /api/admin/homes ──────────────────────────────────────────────────
+// List of every home for the home-delete picker. Includes owner email so
+// the dropdown reads "1218 N 100 W · Hurricane, UT — owned by jake@x.com".
+router.get('/admin/homes', requireAuth, requireAdmin, async (_req, res) => {
+  const { rows } = await q(
+    `SELECT h.id, h.address_line1, h.city, h.state, h.postal_code,
+            h.facts_provider, h.value_estimate, h.confirmed_at, h.created_at,
+            u.id AS owner_user_id, u.email AS owner_email
+       FROM homes h
+       JOIN users u ON u.id = h.owner_user_id
+      ORDER BY h.created_at DESC, h.id DESC`
+  );
+  res.json({ homes: rows });
+});
+
+// ── DELETE /api/admin/homes/:id ───────────────────────────────────────────
+// Hard-delete a single home (the owning user stays intact). Confirmation:
+// the body's confirmation_address must match the row's address_line1
+// (case-insensitive, whitespace-trimmed) — same friction model as user
+// delete uses for email matching.
+router.delete('/admin/homes/:id', requireAuth, requireAdmin, async (req, res) => {
+  const targetId = parseInt(req.params.id, 10);
+  if (!Number.isFinite(targetId)) return res.status(400).json({ error: 'Bad home id' });
+
+  const { confirmation_address } = req.body || {};
+  if (!confirmation_address) {
+    return res.status(400).json({ error: 'confirmation_address required' });
+  }
+
+  const { rows } = await q(
+    `SELECT h.id, h.address_line1, u.email AS owner_email
+       FROM homes h JOIN users u ON u.id = h.owner_user_id
+      WHERE h.id = $1`,
+    [targetId]
+  );
+  if (!rows.length) return res.status(404).json({ error: 'Home not found' });
+
+  if (String(confirmation_address).toLowerCase().trim() !== rows[0].address_line1.toLowerCase().trim()) {
+    return res.status(400).json({ error: 'confirmation_address does not match target home.' });
+  }
+
+  await q(`DELETE FROM homes WHERE id = $1`, [targetId]);
+  console.log(
+    `[admin] user_id=${req.userId} deleted home_id=${targetId} address="${rows[0].address_line1}" owner=${rows[0].owner_email}`
+  );
+  res.json({ ok: true, deleted_home_id: targetId, address_line1: rows[0].address_line1 });
 });
 
 export default router;

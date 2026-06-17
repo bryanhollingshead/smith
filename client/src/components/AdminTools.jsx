@@ -35,6 +35,7 @@ export function AdminMenuItems({ onPick }) {
       <MenuItem icon="users"  onClick={() => onPick('view-as')}>View as demo…</MenuItem>
       <MenuItem icon="shield" onClick={() => onPick('set-password')}>Set demo password…</MenuItem>
       <MenuItem icon="trash"  onClick={() => onPick('delete-user')}>Delete user…</MenuItem>
+      <MenuItem icon="home"   onClick={() => onPick('delete-home')}>Delete home…</MenuItem>
     </>
   );
 }
@@ -46,6 +47,7 @@ export function AdminModals({ kind, onClose }) {
   if (kind === 'view-as')      return <ViewAsModal onClose={onClose}/>;
   if (kind === 'set-password') return <SetPasswordModal onClose={onClose}/>;
   if (kind === 'delete-user')  return <DeleteUserModal onClose={onClose}/>;
+  if (kind === 'delete-home')  return <DeleteHomeModal onClose={onClose}/>;
   return null;
 }
 
@@ -407,6 +409,125 @@ function DeleteUserModal({ onClose }) {
                 opacity: (matches && !busy) ? 1 : 0.6,
               }}>
               {busy ? 'Deleting…' : 'Delete user permanently'}
+            </button>
+          </div>
+        </form>
+      )}
+    </ModalShell>
+  );
+}
+
+// ── Delete-home modal ───────────────────────────────────────────────────
+// Same friction pattern as DeleteUserModal — pick a home, re-type its
+// street address, confirm. Hard-deletes the home; the owning user stays.
+function DeleteHomeModal({ onClose }) {
+  const [homes, setHomes] = useState(null);
+  const [selected, setSelected] = useState(null);
+  const [confirmAddr, setConfirmAddr] = useState('');
+  const [err, setErr] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    api.get('/admin/homes')
+      .then(d => { if (!cancelled) setHomes(d.homes); })
+      .catch(e => { if (!cancelled) setErr(e.message || 'Failed to load homes'); });
+    return () => { cancelled = true; };
+  }, []);
+
+  const matches = !!selected
+    && confirmAddr.trim().toLowerCase() === selected.address_line1.trim().toLowerCase();
+
+  const onSubmit = async (e) => {
+    e.preventDefault();
+    if (!selected || !matches) return;
+    setBusy(true);
+    setErr('');
+    try {
+      await api.delete(`/admin/homes/${selected.id}`, { confirmation_address: confirmAddr.trim() });
+      onClose();
+      window.location.reload();
+    } catch (e) {
+      setErr(e.data?.error || e.message || 'Delete failed');
+      setBusy(false);
+    }
+  };
+
+  return (
+    <ModalShell title="Delete home" onClose={onClose}>
+      {err && !busy && <div style={{ color: B.danger, fontSize: 13, marginBottom: 10 }}>{err}</div>}
+      {!homes && !err && <div style={{ color: B.faint, fontStyle: 'italic', fontSize: 13 }}>Loading…</div>}
+      {homes && homes.length === 0 && (
+        <div style={{ color: B.faint, fontStyle: 'italic', fontSize: 13 }}>No homes in the system yet.</div>
+      )}
+
+      {homes && homes.length > 0 && (
+        <form onSubmit={onSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <label style={{ fontSize: 12, color: B.dim, fontWeight: 600 }}>
+            Home to delete
+            <select
+              value={selected?.id || ''}
+              onChange={e => {
+                const h = homes.find(x => x.id === parseInt(e.target.value, 10)) || null;
+                setSelected(h);
+                setConfirmAddr('');
+              }}
+              style={{
+                width: '100%', marginTop: 4, padding: '8px 10px',
+                border: `1px solid ${B.line}`, borderRadius: 4, background: B.surface,
+                color: B.text, fontSize: 13,
+              }}
+              required
+            >
+              <option value="">Pick a home…</option>
+              {homes.map(h => (
+                <option key={h.id} value={h.id}>
+                  #{h.id} · {h.address_line1}, {h.city}, {h.state} — owned by {h.owner_email}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          {selected && (
+            <label style={{ fontSize: 12, color: B.dim, fontWeight: 600 }}>
+              Re-type <span style={{ color: B.danger, fontFamily: 'monospace' }}>{selected.address_line1}</span> to confirm
+              <input
+                type="text"
+                value={confirmAddr}
+                onChange={e => setConfirmAddr(e.target.value)}
+                autoComplete="off"
+                spellCheck={false}
+                style={{
+                  width: '100%', marginTop: 4, padding: '8px 10px',
+                  border: `1px solid ${B.line}`, borderRadius: 4, background: B.surface,
+                  color: B.text, fontSize: 13, fontFamily: 'monospace',
+                }}
+              />
+            </label>
+          )}
+
+          <div style={{ display: 'flex', gap: 10, marginTop: 4, justifyContent: 'flex-end' }}>
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={busy}
+              style={{
+                background: 'transparent', color: B.text,
+                border: `1px solid ${B.line}`, borderRadius: 100,
+                padding: '9px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer',
+              }}>
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={!matches || busy}
+              style={{
+                background: (matches && !busy) ? B.danger : B.faint, color: '#fff', border: 'none',
+                borderRadius: 100, padding: '9px 16px', fontSize: 13, fontWeight: 700,
+                cursor: (matches && !busy) ? 'pointer' : 'not-allowed',
+                opacity: (matches && !busy) ? 1 : 0.6,
+              }}>
+              {busy ? 'Deleting…' : 'Delete home permanently'}
             </button>
           </div>
         </form>
