@@ -13,6 +13,7 @@ import { SmithLogo } from './Primitives.jsx';
 import { SmithAvatar } from './SmithAvatar.jsx';
 import { ModeToggle } from './ModeToggle.jsx';
 import { AdminMenuItems, AdminModals } from './AdminTools.jsx';
+import { InviteModal } from './InviteTools.jsx';
 
 export function TopNav({ active }) {
   const { navigate } = useRouter();
@@ -21,6 +22,7 @@ export function TopNav({ active }) {
   const [unread, setUnread] = useState(0);
   const [menuOpen, setMenuOpen] = useState(false);
   const [adminModal, setAdminModal] = useState(null); // 'view-as' | 'set-password' | null
+  const [inviteOpen, setInviteOpen] = useState(false);
   const menuRef = useRef(null);
 
   // Fetch this user's profile once so we can show their uploaded avatar.
@@ -68,7 +70,7 @@ export function TopNav({ active }) {
   const items = [
     { k: 'feed', label: 'Feed', icon: 'home', to: '/feed' },
     { k: 'profile', label: 'Profile', icon: 'user', to: '/profile' },
-    { k: 'connections', label: 'Network', icon: 'users', to: '/network' },
+    { k: 'connections', label: 'Connections', icon: 'users', to: '/connections' },
     { k: 'jobs', label: 'Jobs', icon: 'briefcase', to: '/jobs' },
     { k: 'inquiries', label: 'Inquiries', icon: 'hardhat', to: '/inquiries' },
     { k: 'news', label: 'News', icon: 'newspaper', to: '/news' },
@@ -152,6 +154,7 @@ export function TopNav({ active }) {
             }} className="fade-in">
               <MenuItem icon="user" onClick={() => { setMenuOpen(false); navigate('/profile'); }}>My profile</MenuItem>
               <MenuItem icon="edit" onClick={() => { setMenuOpen(false); navigate('/profile/edit'); }}>Edit profile</MenuItem>
+              <MenuItem icon="send" onClick={() => { setMenuOpen(false); setInviteOpen(true); }}>Invite to Smith</MenuItem>
               {user?.is_admin && (
                 <>
                   <div style={{ height: 1, background: B.line, margin: '6px 0' }}/>
@@ -165,6 +168,7 @@ export function TopNav({ active }) {
         </div>
       </div>
       {adminModal && <AdminModals kind={adminModal} onClose={() => setAdminModal(null)}/>}
+      {inviteOpen && <InviteModal onClose={() => setInviteOpen(false)}/>}
     </header>
   );
 }

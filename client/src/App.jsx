@@ -145,7 +145,13 @@ export function App() {
           }
           return <PublicProfilePage slug={profIdMatch.id}/>;
         }
-        if (path === '/network') return <NetworkPage/>;
+        if (path === '/connections') return <NetworkPage/>;
+        // Old /network URL: keep redirecting to /connections so external
+        // links and bookmarks survive the rename.
+        if (path === '/network') {
+          setTimeout(() => navigate('/connections', { replace: true }), 0);
+          return <NetworkPage/>;
+        }
         if (path === '/alerts') return <AlertsPage/>;
         if (path === '/news') return <NewsPage/>;
         if (path === '/news/saved') return <NewsSavedPage/>;

@@ -2,9 +2,11 @@
 // Three tabs in the UI: Connections, Pending, Suggestions.
 
 import { Router } from 'express';
+import crypto from 'node:crypto';
 import { q } from '../db.js';
 import { requireAuth } from '../middleware.js';
 import { publicUrl } from '../storage.js';
+import { sendInviteEmail } from '../mailer.js';
 
 const router = Router();
 
@@ -293,6 +295,144 @@ router.delete('/:id', requireAuth, async (req, res) => {
     [id, req.userId]
   );
   res.json({ ok: r.rowCount > 0 });
+});
+
+// ── Invites — bring people onto Smith ─────────────────────────────────────
+// Tradesman-to-tradesman invite by email. We mint a token, email a magic
+// signup link, and on signup acceptance auto-connect the inviter to the
+// new user. Token is URL-safe base64, 32 bytes. Invites expire after 30
+// days (default in the schema).
+
+// POST /api/connections/invites — Body: { email, message? }
+router.post('/invites', requireAuth, async (req, res) => {
+  const email = String(req.body?.email || '').trim();
+  const message = req.body?.message ? String(req.body.message).trim() : null;
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return res.status(400).json({ error: 'A valid email is required.' });
+  }
+  if (message && message.length > 500) {
+    return res.status(400).json({ error: 'Message must be under 500 characters.' });
+  }
+
+  // If the email is already on Smith, skip the invite — the caller should
+  // use the regular connection request flow instead. Surfacing this back to
+  // them keeps them from spamming people who are already here.
+  const existing = await q('SELECT id, first_name, last_name FROM users WHERE email = $1', [email]);
+  if (existing.rowCount) {
+    return res.status(409).json({
+      error: 'That email is already on Smith.',
+      existing_user_id: existing.rows[0].id,
+    });
+  }
+
+  // Reuse an existing pending invite to the same email rather than piling
+  // up duplicate tokens. Resend the email so the invitee gets a fresh nudge.
+  let token, expiresAt;
+  const dupe = await q(
+    `SELECT id, token, expires_at FROM invites
+      WHERE inviter_id = $1 AND email = $2 AND status = 'pending'
+      ORDER BY sent_at DESC LIMIT 1`,
+    [req.userId, email]
+  );
+  if (dupe.rowCount) {
+    token = dupe.rows[0].token;
+    expiresAt = dupe.rows[0].expires_at;
+    await q(`UPDATE invites SET sent_at = NOW(), message = COALESCE($2, message) WHERE id = $1`,
+      [dupe.rows[0].id, message]);
+  } else {
+    token = crypto.randomBytes(32).toString('base64url');
+    const ins = await q(
+      `INSERT INTO invites (inviter_id, email, token, message)
+         VALUES ($1, $2, $3, $4)
+         RETURNING expires_at`,
+      [req.userId, email, token, message]
+    );
+    expiresAt = ins.rows[0].expires_at;
+  }
+
+  const me = await q(
+    `SELECT first_name, last_name, headline FROM users WHERE id = $1`,
+    [req.userId]
+  );
+  const inviterName = `${me.rows[0].first_name || ''} ${me.rows[0].last_name || ''}`.trim()
+    || 'A Smith member';
+  const origin = (process.env.CLIENT_ORIGIN && process.env.CLIENT_ORIGIN !== '*')
+    ? process.env.CLIENT_ORIGIN
+    : 'http://localhost:5173';
+  const magicLink = `${origin.replace(/\/+$/, '')}/#/auth/signup?invite=${token}&email=${encodeURIComponent(email)}`;
+
+  await sendInviteEmail(email, {
+    inviterName,
+    inviterHeadline: me.rows[0].headline || null,
+    message,
+    magicLink,
+  });
+
+  res.status(201).json({ ok: true, expires_at: expiresAt });
+});
+
+// GET /api/connections/invites — list the caller's sent invites with status
+router.get('/invites', requireAuth, async (req, res) => {
+  const { rows } = await q(
+    `SELECT id, email, message, status, sent_at, accepted_at, expires_at,
+            accepted_user_id
+       FROM invites
+      WHERE inviter_id = $1
+      ORDER BY sent_at DESC`,
+    [req.userId]
+  );
+  // Auto-mark expired rows (they may have aged past expires_at since last
+  // status update). This is a cheap pass — no large-table issue at our
+  // scale, and it keeps the UI list correct without a cron.
+  await q(
+    `UPDATE invites SET status = 'expired'
+      WHERE inviter_id = $1 AND status = 'pending' AND expires_at < NOW()`,
+    [req.userId]
+  );
+  res.json({ invites: rows });
+});
+
+// POST /api/connections/invites/:id/resend — re-send the email for a
+// still-pending invite. Doesn't mint a new token, just nudges.
+router.post('/invites/:id/resend', requireAuth, async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const { rows } = await q(
+    `SELECT i.id, i.email, i.token, i.message, i.status,
+            u.first_name, u.last_name, u.headline
+       FROM invites i JOIN users u ON u.id = i.inviter_id
+      WHERE i.id = $1 AND i.inviter_id = $2`,
+    [id, req.userId]
+  );
+  if (!rows.length) return res.status(404).json({ error: 'Invite not found' });
+  if (rows[0].status !== 'pending') {
+    return res.status(409).json({ error: `Invite is ${rows[0].status}, cannot resend.` });
+  }
+  const inviterName = `${rows[0].first_name || ''} ${rows[0].last_name || ''}`.trim()
+    || 'A Smith member';
+  const origin = (process.env.CLIENT_ORIGIN && process.env.CLIENT_ORIGIN !== '*')
+    ? process.env.CLIENT_ORIGIN
+    : 'http://localhost:5173';
+  const magicLink = `${origin.replace(/\/+$/, '')}/#/auth/signup?invite=${rows[0].token}&email=${encodeURIComponent(rows[0].email)}`;
+  await sendInviteEmail(rows[0].email, {
+    inviterName,
+    inviterHeadline: rows[0].headline || null,
+    message: rows[0].message,
+    magicLink,
+  });
+  await q(`UPDATE invites SET sent_at = NOW() WHERE id = $1`, [id]);
+  res.json({ ok: true });
+});
+
+// DELETE /api/connections/invites/:id — revoke a pending invite
+router.delete('/invites/:id', requireAuth, async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const r = await q(
+    `UPDATE invites SET status = 'revoked'
+      WHERE id = $1 AND inviter_id = $2 AND status = 'pending'`,
+    [id, req.userId]
+  );
+  if (!r.rowCount) return res.status(404).json({ error: 'Pending invite not found' });
+  res.json({ ok: true });
 });
 
 export default router;

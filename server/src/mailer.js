@@ -132,6 +132,31 @@ export async function sendVerificationEmail(to, code) {
   });
 }
 
+// Network invite — sent when a Smith user invites someone via email. Subject
+// leans on the Smith-god lexicon ("passed you the fire") because the invite
+// email is one of the highest-leverage brand surfaces — the very first thing
+// a prospective user sees about the platform.
+export async function sendInviteEmail(to, { inviterName, inviterHeadline, message, magicLink }) {
+  const intro = inviterHeadline
+    ? `${inviterName} — ${inviterHeadline} — invited you to Smith.`
+    : `${inviterName} invited you to Smith.`;
+  const quoted = message?.trim()
+    ? `\n\n${inviterName.split(/\s+/)[0]} wrote:\n"${message.trim()}"\n`
+    : '';
+  return sendMockEmail({
+    to,
+    subject: `${inviterName} passed you the fire.`,
+    body:
+      `${intro}\n\n` +
+      `Smith is the network for the people who build — tradespeople, ` +
+      `craftspeople, makers. ${inviterName} thought you belonged here.${quoted}\n\n` +
+      `Claim your spot (link valid for 30 days):\n${magicLink}\n\n` +
+      `If this looks like a mistake, ignore the message — nothing happens.`,
+    kind: 'invite',
+    meta: { inviter: inviterName, link: magicLink },
+  });
+}
+
 // Reset link uses hash-routing format (#/auth/reset?token=...) because the
 // React app uses hash routing on the client side. Without the # the path
 // won't resolve to the reset page.

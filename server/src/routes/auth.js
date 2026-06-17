@@ -17,6 +17,40 @@ const router = Router();
 const CODE_TTL_MIN = parseInt(process.env.EMAIL_CODE_TTL_MIN || '15', 10);
 const RESET_TTL_MIN = parseInt(process.env.RESET_TOKEN_TTL_MIN || '30', 10);
 
+// Order user ids so connections.user_a_id < user_b_id (canonical pair).
+const pairIds = (x, y) => (x < y ? [x, y] : [y, x]);
+
+// Consume an invite token at signup. If the token is valid + pending +
+// not expired, mark the invite accepted and auto-create an accepted
+// connection between the inviter and the newly-signed-up user. Silent
+// no-op if the token is missing, malformed, expired, or doesn't match.
+// Never throws into the signup path — invite failure should not block
+// account creation.
+async function consumeInviteToken(newUserId, token) {
+  if (!token || typeof token !== 'string') return;
+  const { rows } = await q(
+    `SELECT id, inviter_id FROM invites
+      WHERE token = $1 AND status = 'pending' AND expires_at > NOW()`,
+    [token]
+  );
+  if (!rows.length) return;
+  const inviterId = rows[0].inviter_id;
+  if (inviterId === newUserId) return;     // belt + suspenders: self-invite
+
+  await q(
+    `UPDATE invites SET status = 'accepted', accepted_user_id = $1, accepted_at = NOW()
+       WHERE id = $2`,
+    [newUserId, rows[0].id]
+  );
+  const [a, b] = pairIds(inviterId, newUserId);
+  await q(
+    `INSERT INTO connections (user_a_id, user_b_id, status, requested_by, responded_at)
+       VALUES ($1, $2, 'accepted', $3, NOW())
+       ON CONFLICT (user_a_id, user_b_id) DO NOTHING`,
+    [a, b, inviterId]
+  );
+}
+
 // ── Shape the user payload returned by signup / signin / /me ──────────────
 // Adds the derived `profiles` flags so the client knows which modes the user
 // has actually set up. The flags are derived (never stored) so they can't
@@ -73,6 +107,7 @@ router.post('/signup', async (req, res) => {
     first_name = '', last_name = '',
     role: roleIn,
     hiring_context: hiringIn,
+    invite_token: inviteToken,
   } = req.body || {};
   if (!email || !password) {
     return res.status(400).json({ error: 'Email and password required' });
@@ -127,6 +162,9 @@ router.post('/signup', async (req, res) => {
       [email, hash, first_name, last_name, role, hiringContext,
        skipOnboarding ? 5 : 1, skipOnboarding]
     );
+    await consumeInviteToken(rows[0].id, inviteToken).catch(err =>
+      console.error('[auth] invite-consume failed (soft-launch):', err.message)
+    );
     const token = signToken({ sub: rows[0].id });
     return res.status(201).json({
       ok: true,
@@ -155,6 +193,9 @@ router.post('/signup', async (req, res) => {
     return { user, code };
   });
   await sendVerificationEmail(email, result.code);
+  await consumeInviteToken(result.user.id, inviteToken).catch(err =>
+    console.error('[auth] invite-consume failed (verify-path):', err.message)
+  );
 
   // Issue a token now so the user can hit /auth/verify-email while logged in.
   // The endpoints they need before verification all use requireAuth (no requireVerified).

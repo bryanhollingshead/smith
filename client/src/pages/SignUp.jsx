@@ -24,10 +24,15 @@ const stepDots = [
 
 export function SignUpPage() {
   const { signUp, loading } = useAuth();
-  const { navigate } = useRouter();
+  const { navigate, params } = useRouter();
+  // Magic-link invite — when present, pre-fill email + carry the token
+  // through to /auth/signup. The server consumes the token and
+  // auto-connects the new user to the inviter.
+  const inviteToken = params.invite || null;
+  const incomingEmail = params.email || '';
   const [first, setFirst] = useState('');
   const [last, setLast] = useState('');
-  const [email, setEmail] = useState('');
+  const [email, setEmail] = useState(incomingEmail);
   const [pw, setPw] = useState('');
   const [agree, setAgree] = useState(true);
   const [error, setError] = useState(null);
@@ -44,6 +49,7 @@ export function SignUpPage() {
         password: pw,
         first_name: first.trim(),
         last_name: last.trim(),
+        invite_token: inviteToken || undefined,
       });
       navigate('/auth/confirm');
     } catch (e) {

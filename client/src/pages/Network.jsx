@@ -10,6 +10,7 @@ import { TopNav } from '../components/TopNav.jsx';
 import { Avatar, Photo } from '../components/Primitives.jsx';
 import { SmithAvatar } from '../components/SmithAvatar.jsx';
 import { Icon } from '../components/Icon.jsx';
+import { InvitePanel } from '../components/InviteTools.jsx';
 import { api } from '../lib/api.js';
 import { useRouter } from '../lib/router.jsx';
 
@@ -69,10 +70,12 @@ export function NetworkPage() {
         <h1 className="serif" style={{
           color: B.text, fontSize: 36, fontWeight: 600, margin: 0,
           letterSpacing: '-0.02em',
-        }}>Your network</h1>
+        }}>Your connections</h1>
         <p style={{ color: B.dim, fontSize: 15, marginTop: 6 }}>
           The people you've worked with, and the ones you should.
         </p>
+
+        <InvitePanel/>
 
         <div style={{
           display: 'flex', gap: 28, marginTop: 28,

@@ -38,11 +38,11 @@ export function AuthProvider({ children }) {
     }
   };
 
-  const signUp = async ({ email, password, first_name, last_name, role, hiring_context }) => {
+  const signUp = async ({ email, password, first_name, last_name, role, hiring_context, invite_token }) => {
     setLoading(true);
     try {
       const data = await api.post('/auth/signup', {
-        email, password, first_name, last_name, role, hiring_context,
+        email, password, first_name, last_name, role, hiring_context, invite_token,
       });
       auth.set(data.token);
       setUser(data.user);
