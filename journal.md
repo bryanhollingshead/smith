@@ -1183,6 +1183,86 @@ that defaults to atomization. This is what the future homeowner-mode
 roadmap (neighborhood social, civic-funding, longitudinal home memory)
 lives inside of.
 
+### Expansion — the ultimate outcomes (2026-06-17, Bryan)
+
+Bryan, expanding theme 3 into the platform's destination: *"On the
+communities side it's also about building a digital profile that enables
+neighborhoods and communities to connect, share and physically interact.
+To build beautifully, sustainably and engage more locally and meaningfully
+in the physical world. As the platform matures and scales and allows for
+large scale neighborhood developments I want design, community and
+connection to be important aspects of the vision that the platform helps
+bring about. Making homes affordable, beautiful, and situated in loving
+connected neighborhoods are the ultimate outcomes we are after. The home
+repair, trade network are precursors or ingredients that allow for the
+ultimate experience for new and existing homeowners to bring about these
+experiences with less friction and overhead..."*
+
+**The reframing.** The trade network + home repair / home profile work
+that's currently in build is **not the product** — it's the **wedge**.
+The destination is coordinated, community-scale building that delivers:
+
+- **Affordable** homes
+- **Beautiful** homes
+- Situated in **loving, connected neighborhoods**
+
+The three theme-words that animate the destination explicitly: **design**,
+**community**, **connection**. As the platform matures and scales, Smith
+should enable **large-scale neighborhood developments** with those three
+as first-class — not as afterthoughts to a transactional contractor
+marketplace.
+
+**Why this reframing matters for build decisions.** When prioritizing or
+designing features today, the question shifts from "does this help a
+homeowner hire a tradesperson?" to "does this lower the friction +
+overhead between today's home-by-home reality and the eventual
+neighborhood-scale outcomes?" The trade network exists to **earn the
+right** to coordinate at the neighborhood level later. Every interaction
+should compound toward that, not just close the immediate transaction.
+
+### Even later — actual home building and neighborhood design (2026-06-17, Bryan)
+
+Bryan, extending one layer further: *"Later phases go beyond home
+improvement and home repair into actual homes building and actual
+neighborhood design with hyper-leveraged economics grounded in solid
+principles."*
+
+**What this means.** The arc doesn't stop at "coordinated improvements
+to existing homes in connected neighborhoods." It continues into:
+
+- **Actual ground-up home building.** Not just renovation — new
+  construction. Smith eventually delivers new homes.
+- **Actual neighborhood design.** Urban planning scale. Master-planned
+  communities, infill developments, neighborhood-as-product. The
+  platform participates in designing the places people live, not just
+  servicing the ones that already exist.
+- **Hyper-leveraged economics grounded in solid principles.** The
+  economic model itself is differentiated — capital-efficient,
+  value-multiplied, principles-first. Not "transactional marketplace
+  with VC unit economics." Exactly what that mechanism looks like
+  isn't fully written down yet, but the phrase carries weight: the
+  economic engine should be unusual *and* principled.
+
+**How this shapes today's work.** Same lens as before, one layer
+deeper. Today's home repair / trade network features are precursors
+that earn the right to:
+  1. Coordinate at the neighborhood level (community-scale renovation,
+     shared maintenance, civic-funded projects),
+  2. Build new homes (ground-up construction in those communities),
+  3. Design new neighborhoods (master-planned development with
+     design + community + connection as first-class).
+
+The economic model at each layer ought to compound — the data, the
+trust, the network density built at layer N becomes the unfair advantage
+at layer N+1. Don't ship anything that closes a transactional loop and
+discards the relationship/data/trust afterward; it forfeits the
+compounding that funds the later layers.
+
+**Connects to:** the homeowner-mode vision's "much later phase" of
+real-estate tokenization — now contextualized as not just resale, but
+the funding/coordination mechanism for the new-construction and
+neighborhood-design phases.
+
 **Note (vision doc needed).** The "context-to-write" list above
 (docs/domain-model.md, roles-and-permissions.md, product-principles.md,
 integration-roadmap.md) was framed around build-unblocking docs. It
