@@ -360,6 +360,55 @@ router.patch('/me/mode', requireAuth, async (req, res) => {
   });
 });
 
+// ─── DELETE /api/auth/me ────────────────────────────────────────────────────
+// Self-serve account deletion. Permanent — cascades through homes, posts,
+// connections, messages, every FK that points at users.id (most are ON
+// DELETE CASCADE, the rest are ON DELETE SET NULL so historical artifacts
+// survive but the user link is severed).
+//
+// Body: { password, confirmation }
+//   - password is re-checked against bcrypt so a stolen JWT alone can't
+//     destroy an account
+//   - confirmation MUST be the literal string "delete my account" — typed
+//     UI affordance so accidental clicks aren't catastrophic
+//
+// Refuses when the user is the only remaining is_admin (so the admin can't
+// brick the system by deleting themselves without first promoting someone).
+router.delete('/me', requireAuth, async (req, res) => {
+  const { password, confirmation } = req.body || {};
+  if (confirmation !== 'delete my account') {
+    return res.status(400).json({ error: 'Type "delete my account" to confirm.' });
+  }
+  if (!password) {
+    return res.status(400).json({ error: 'Password required to confirm deletion.' });
+  }
+
+  const { rows } = await q(
+    `SELECT id, email, password_hash, is_admin FROM users WHERE id = $1`,
+    [req.userId]
+  );
+  if (!rows.length) return res.status(404).json({ error: 'Not found' });
+
+  const ok = await checkPassword(password, rows[0].password_hash);
+  if (!ok) return res.status(401).json({ error: 'Password incorrect.' });
+
+  if (rows[0].is_admin) {
+    const others = await q(
+      `SELECT 1 FROM users WHERE is_admin = TRUE AND id <> $1 LIMIT 1`,
+      [req.userId]
+    );
+    if (!others.rowCount) {
+      return res.status(409).json({
+        error: 'You are the only admin. Promote another admin before deleting your account.',
+      });
+    }
+  }
+
+  await q(`DELETE FROM users WHERE id = $1`, [req.userId]);
+  console.log(`[auth] self-delete user_id=${req.userId} email=${rows[0].email}`);
+  res.json({ ok: true });
+});
+
 // ─── DEV ONLY: GET /api/auth/dev/last-email ─────────────────────────────────
 // Lets test scripts (and the auth UI) read the latest mock email for a user.
 // Disabled outside development.

@@ -171,7 +171,161 @@ export function EditProfilePage() {
         {tab === 'trades' && <TradesAndSkillsTab profile={profile} onSaved={handleSaved}/>}
         {tab === 'work' && <WorkHistoryTab profile={profile} onSaved={handleSaved} focus={focus}/>}
         {tab === 'credentials' && <CredentialsTab profile={profile} onSaved={handleSaved}/>}
+
+        <DangerZone/>
       </main>
+    </div>
+  );
+}
+
+// ── Danger zone (account deletion) ─────────────────────────────────────────
+// Self-serve permanent deletion. Server enforces password reverify +
+// only-admin-remaining safety; the UI side just makes the action visually
+// distinct and adds typed-confirmation friction.
+function DangerZone() {
+  const [open, setOpen] = useState(false);
+  return (
+    <section style={{
+      marginTop: 56, padding: '20px 22px',
+      background: B.surface, border: `1px solid ${B.danger}`, borderRadius: 8,
+    }}>
+      <div style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        gap: 16, flexWrap: 'wrap',
+      }}>
+        <div>
+          <h3 className="serif" style={{
+            margin: 0, fontSize: 16, fontWeight: 600, color: B.danger,
+          }}>Delete account</h3>
+          <p style={{ color: B.dim, fontSize: 12.5, margin: '4px 0 0', lineHeight: 1.5 }}>
+            Removes your profile, posts, connections, messages, and any homes
+            you've claimed. Permanent — there is no undo.
+          </p>
+        </div>
+        <button
+          onClick={() => setOpen(true)}
+          style={{
+            background: B.surface, color: B.danger,
+            border: `1px solid ${B.danger}`, borderRadius: 100,
+            padding: '9px 16px', fontSize: 13, fontWeight: 600,
+            cursor: 'pointer', whiteSpace: 'nowrap',
+          }}>
+          Delete my account…
+        </button>
+      </div>
+      {open && <DeleteAccountModal onClose={() => setOpen(false)}/>}
+    </section>
+  );
+}
+
+function DeleteAccountModal({ onClose }) {
+  const { signOut } = useAuth();
+  const { navigate } = useRouter();
+  const [password, setPassword] = useState('');
+  const [confirmation, setConfirmation] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+
+  const ready = confirmation === 'delete my account' && password.length > 0 && !busy;
+
+  const onSubmit = async (e) => {
+    e.preventDefault();
+    setErr('');
+    setBusy(true);
+    try {
+      await api.delete('/auth/me', { password, confirmation });
+      // Token is now bound to a deleted user — clear it and route to landing.
+      signOut();
+      navigate('/');
+    } catch (e) {
+      setErr(e.data?.error || e.message || 'Could not delete account.');
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        zIndex: 200, padding: 20,
+      }}>
+      <form
+        onClick={e => e.stopPropagation()}
+        onSubmit={onSubmit}
+        style={{
+          background: B.surface, border: `1px solid ${B.line}`, borderRadius: 8,
+          padding: 24, minWidth: 440, maxWidth: 520,
+          boxShadow: '0 12px 40px rgba(0,0,0,0.18)',
+        }}>
+        <h3 style={{ margin: 0, fontSize: 17, fontWeight: 700, color: B.danger }}>
+          Delete your account?
+        </h3>
+        <p style={{ color: B.dim, fontSize: 13, lineHeight: 1.55, margin: '8px 0 16px' }}>
+          This will permanently remove your account and every record attached
+          to it. There is no undo.
+        </p>
+
+        <label style={{ display: 'block', fontSize: 12, color: B.dim, fontWeight: 600 }}>
+          Your password
+          <input
+            type="password"
+            value={password}
+            onChange={e => setPassword(e.target.value)}
+            autoComplete="current-password"
+            style={{
+              width: '100%', marginTop: 4, padding: '8px 10px',
+              border: `1px solid ${B.line}`, borderRadius: 4, background: B.surface,
+              color: B.text, fontSize: 13,
+            }}
+            required
+          />
+        </label>
+        <label style={{ display: 'block', fontSize: 12, color: B.dim, fontWeight: 600, marginTop: 12 }}>
+          Type <span style={{ color: B.danger, fontFamily: 'monospace' }}>delete my account</span> to confirm
+          <input
+            type="text"
+            value={confirmation}
+            onChange={e => setConfirmation(e.target.value)}
+            autoComplete="off"
+            spellCheck={false}
+            style={{
+              width: '100%', marginTop: 4, padding: '8px 10px',
+              border: `1px solid ${B.line}`, borderRadius: 4, background: B.surface,
+              color: B.text, fontSize: 13, fontFamily: 'monospace',
+            }}
+          />
+        </label>
+
+        {err && <div style={{ color: B.danger, fontSize: 12, marginTop: 10 }}>{err}</div>}
+
+        <div style={{ display: 'flex', gap: 10, marginTop: 18, justifyContent: 'flex-end' }}>
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={busy}
+            style={{
+              background: 'transparent', color: B.text,
+              border: `1px solid ${B.line}`, borderRadius: 100,
+              padding: '9px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer',
+            }}>
+            Cancel
+          </button>
+          <button
+            type="submit"
+            disabled={!ready}
+            style={{
+              background: ready ? B.danger : B.faint, color: '#fff', border: 'none',
+              borderRadius: 100, padding: '9px 16px',
+              fontSize: 13, fontWeight: 700,
+              cursor: ready ? 'pointer' : 'not-allowed',
+              opacity: ready ? 1 : 0.6,
+            }}>
+            {busy ? 'Deleting…' : 'Delete account permanently'}
+          </button>
+        </div>
+      </form>
     </div>
   );
 }

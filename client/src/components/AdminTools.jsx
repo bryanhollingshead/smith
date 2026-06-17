@@ -34,6 +34,7 @@ export function AdminMenuItems({ onPick }) {
       }}>Admin</div>
       <MenuItem icon="users"  onClick={() => onPick('view-as')}>View as demo…</MenuItem>
       <MenuItem icon="shield" onClick={() => onPick('set-password')}>Set demo password…</MenuItem>
+      <MenuItem icon="trash"  onClick={() => onPick('delete-user')}>Delete user…</MenuItem>
     </>
   );
 }
@@ -44,6 +45,7 @@ export function AdminMenuItems({ onPick }) {
 export function AdminModals({ kind, onClose }) {
   if (kind === 'view-as')      return <ViewAsModal onClose={onClose}/>;
   if (kind === 'set-password') return <SetPasswordModal onClose={onClose}/>;
+  if (kind === 'delete-user')  return <DeleteUserModal onClose={onClose}/>;
   return null;
 }
 
@@ -260,6 +262,153 @@ function SetPasswordModal({ onClose }) {
           >
             {busy ? 'Setting…' : 'Set password'}
           </button>
+        </form>
+      )}
+    </ModalShell>
+  );
+}
+
+// ── Delete-user modal ───────────────────────────────────────────────────
+// Hard-deletes any user. The picker lists all users; selecting one reveals
+// a typed-email confirmation that must match exactly before the danger
+// button enables. Admin cannot use this on their own account — the server
+// refuses, and the picker filters self out for clarity.
+function DeleteUserModal({ onClose }) {
+  const [users, setUsers] = useState(null);
+  const [selected, setSelected] = useState(null);
+  const [confirmEmail, setConfirmEmail] = useState('');
+  const [err, setErr] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [me, setMe] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all([api.get('/admin/users'), api.get('/auth/me')])
+      .then(([list, who]) => {
+        if (cancelled) return;
+        setUsers(list.users);
+        setMe(who.user);
+      })
+      .catch(e => { if (!cancelled) setErr(e.message || 'Failed to load users'); });
+    return () => { cancelled = true; };
+  }, []);
+
+  const targetable = users ? users.filter(u => u.id !== me?.id) : null;
+  const matches = !!selected
+    && confirmEmail.trim().toLowerCase() === selected.email.trim().toLowerCase();
+
+  const onSubmit = async (e) => {
+    e.preventDefault();
+    if (!selected || !matches) return;
+    setBusy(true);
+    setErr('');
+    try {
+      await api.delete(`/admin/users/${selected.id}`, { confirmation_email: confirmEmail.trim() });
+      onClose();
+      // Bust caches — the deleted user shouldn't appear in subsequent pickers.
+      // A page reload is heavy but keeps every list (demos, users, etc) in sync.
+      window.location.reload();
+    } catch (e) {
+      setErr(e.data?.error || e.message || 'Delete failed');
+      setBusy(false);
+    }
+  };
+
+  return (
+    <ModalShell title="Delete user" onClose={onClose}>
+      {err && !busy && <div style={{ color: B.danger, fontSize: 13, marginBottom: 10 }}>{err}</div>}
+      {!users && !err && <div style={{ color: B.faint, fontStyle: 'italic', fontSize: 13 }}>Loading…</div>}
+
+      {users && (
+        <form onSubmit={onSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <label style={{ fontSize: 12, color: B.dim, fontWeight: 600 }}>
+            User to delete
+            <select
+              value={selected?.id || ''}
+              onChange={e => {
+                const u = users.find(x => x.id === parseInt(e.target.value, 10)) || null;
+                setSelected(u);
+                setConfirmEmail('');
+              }}
+              style={{
+                width: '100%', marginTop: 4, padding: '8px 10px',
+                border: `1px solid ${B.line}`, borderRadius: 4, background: B.surface,
+                color: B.text, fontSize: 13,
+              }}
+              required
+            >
+              <option value="">Pick a user…</option>
+              {targetable?.map(u => {
+                const flags = [
+                  u.is_admin ? 'admin' : null,
+                  u.is_demo  ? 'demo'  : null,
+                ].filter(Boolean).join(', ');
+                return (
+                  <option key={u.id} value={u.id}>
+                    {u.first_name} {u.last_name} — {u.email}
+                    {flags ? ` (${flags})` : ''}
+                  </option>
+                );
+              })}
+            </select>
+          </label>
+
+          {selected && (
+            <>
+              {selected.is_admin && (
+                <div style={{
+                  background: B.dangerSoft, color: B.danger,
+                  border: `1px solid ${B.danger}`, borderRadius: 6,
+                  padding: '8px 12px', fontSize: 12, lineHeight: 1.5,
+                }}>
+                  <strong>Heads up:</strong> this user is an admin. The server
+                  will refuse if they are the only admin remaining.
+                </div>
+              )}
+              <label style={{ fontSize: 12, color: B.dim, fontWeight: 600 }}>
+                Re-type <span style={{ color: B.danger, fontFamily: 'monospace' }}>{selected.email}</span> to confirm
+                <input
+                  type="text"
+                  value={confirmEmail}
+                  onChange={e => setConfirmEmail(e.target.value)}
+                  autoComplete="off"
+                  spellCheck={false}
+                  style={{
+                    width: '100%', marginTop: 4, padding: '8px 10px',
+                    border: `1px solid ${B.line}`, borderRadius: 4, background: B.surface,
+                    color: B.text, fontSize: 13, fontFamily: 'monospace',
+                  }}
+                />
+              </label>
+            </>
+          )}
+
+          {err && busy === false && <div style={{ color: B.danger, fontSize: 12 }}>{err}</div>}
+
+          <div style={{ display: 'flex', gap: 10, marginTop: 4, justifyContent: 'flex-end' }}>
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={busy}
+              style={{
+                background: 'transparent', color: B.text,
+                border: `1px solid ${B.line}`, borderRadius: 100,
+                padding: '9px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer',
+              }}>
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={!matches || busy}
+              style={{
+                background: (matches && !busy) ? B.danger : B.faint, color: '#fff', border: 'none',
+                borderRadius: 100, padding: '9px 16px', fontSize: 13, fontWeight: 700,
+                cursor: (matches && !busy) ? 'pointer' : 'not-allowed',
+                opacity: (matches && !busy) ? 1 : 0.6,
+              }}>
+              {busy ? 'Deleting…' : 'Delete user permanently'}
+            </button>
+          </div>
         </form>
       )}
     </ModalShell>
