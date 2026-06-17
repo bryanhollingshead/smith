@@ -55,48 +55,53 @@ export class RentcastProvider {
   }
 }
 
-// Map Rentcast's response onto our canonical shape. The exact field names
-// for subject-attributes ride on top of the value endpoint when
-// lookupSubjectAttributes=true. Field names like `formattedAddress`, `city`,
-// `state`, `zipCode`, `latitude`, `longitude`, `yearBuilt`, `squareFootage`,
-// `bedrooms`, `bathrooms`, `lotSize`, `lastSaleDate`, `lastSalePrice`
-// match Rentcast's property-data conventions; we read defensively so a
-// missing field is just null, not a thrown error.
+// Map Rentcast's /avm/value response onto our canonical shape. Real shape
+// (confirmed against the API on 2026-06-17):
+//   root: { price, priceRangeLow, priceRangeHigh, latitude, longitude,
+//           subjectProperty: {...}, comparables: [...] }
+// Subject attributes live under `subjectProperty` when
+// lookupSubjectAttributes=true is passed — NOT at the response root.
+// Rentcast does NOT return last sale PRICE (just date), nor neighborhood,
+// stories, roof, or heating — those stay null in our schema.
 function shapeRentcast(data) {
-  const subject = data || {};
+  const root = data || {};
+  const subject = root.subjectProperty || {};
   const lotSqft = num(subject.lotSize);
   const lotAcres = lotSqft != null ? +(lotSqft / 43560).toFixed(2) : null;
 
   return {
     canonical_address: {
-      line1: subject.formattedAddress
-        ? String(subject.formattedAddress).split(',')[0].trim()
-        : (subject.addressLine1 || ''),
+      line1: subject.addressLine1
+        || (subject.formattedAddress ? String(subject.formattedAddress).split(',')[0].trim() : ''),
       city: subject.city || '',
       state: subject.state || '',
       postal_code: subject.zipCode || subject.postalCode || '',
-      neighborhood: null,
+      neighborhood: null,                               // not in Rentcast
     },
-    latitude: num(subject.latitude),
-    longitude: num(subject.longitude),
+    // lat/lng appear at BOTH root and subjectProperty — prefer subject's
+    // (parcel-level) when present, fall back to root (geocode-level).
+    latitude:  num(subject.latitude  ?? root.latitude),
+    longitude: num(subject.longitude ?? root.longitude),
     facts: {
       year_built: int(subject.yearBuilt),
       square_feet: int(subject.squareFootage),
       bedrooms: int(subject.bedrooms),
       bathrooms: num(subject.bathrooms),
       lot_acres: lotAcres,
-      stories: null,                                    // Rentcast doesn't expose this
-      last_sold_date: subject.lastSaleDate || null,
-      last_sold_price: int(subject.lastSalePrice),
+      stories: null,                                    // not in Rentcast
+      last_sold_date: subject.lastSaleDate
+        ? String(subject.lastSaleDate).slice(0, 10)     // ISO timestamp → YYYY-MM-DD
+        : null,
+      last_sold_price: null,                            // Rentcast doesn't return it
       roof_material: null,                              // not in Rentcast
       roof_year: null,                                  // not in Rentcast
       heating: null,                                    // not in Rentcast
     },
-    value: subject.price != null
+    value: root.price != null
       ? {
-          estimate: int(subject.price),
-          low: int(subject.priceRangeLow),
-          high: int(subject.priceRangeHigh),
+          estimate: int(root.price),
+          low: int(root.priceRangeLow),
+          high: int(root.priceRangeHigh),
         }
       : null,
     provider: 'rentcast',
