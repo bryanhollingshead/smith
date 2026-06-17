@@ -1142,6 +1142,60 @@ wrong domain model.
 
 ---
 
+## 🧭 Product principles — captured as we go
+
+A holding area for durable product principles surfaced during build work,
+to be lifted into `docs/product-principles.md` (context-to-write item #3
+above) when that doc gets written. **When that happens, move these entries
+into the doc and delete this section** so there's one source of truth.
+
+### Homeowner enrichment is opt-in, just-in-time at value-moments (2026-06-17)
+Bryan: *"I want to give them the ability to enrich without requiring or
+encouraging unless it brings real value such as during the spec writing
+and bid process."*
+
+**The principle.** Homeowner-mode data enrichment (rooms, dimensions,
+systems, materials, floor plans, photos) is **only ever surfaced inside
+flows where the answer directly improves the outcome the homeowner already
+wants**. The data lands as a side effect of getting something useful — not
+as a chore.
+
+**Banned patterns.**
+- "Complete your profile" nags or progress bars
+- Generic onboarding questionnaires beyond initial address-confirm
+- Soft-feature-locking ("add 3 more details to unlock X")
+- Background reminders to "tell us more about your home"
+
+**The right shape.** When a homeowner starts a job spec / bid request,
+the wizard asks "which room, what dimensions, what materials" because
+more accurate bids come back. Same data we'd want to collect anyway, but
+the homeowner has a concrete reason to share it. Other qualifying
+moments: filing a maintenance task, requesting an insurance quote,
+asking for a renovation value-impact projection.
+
+**Why this matters.** Generic profile-building is the trap that kills
+proptech engagement. The home profile gets rich over time *because* the
+homeowner uses the platform's value moments — not from a one-shot
+onboarding sprint. Empty rooms, blank systems, missing dimensions are
+first-class states, not nag triggers.
+
+**How it shapes decisions.**
+- Treat home data as **lazy-populated by design**. Every screen should
+  render gracefully on a near-empty home row.
+- The homeowner-mode roadmap order should weight features that have
+  natural "ask me about my house" moments (spec writing, bidding,
+  maintenance scheduling) *earlier* than features that don't, because
+  they deliver enrichment as a byproduct.
+- Resist adding "complete your profile" widgets even when the data
+  would help downstream features. Wait for the downstream feature to
+  surface the ask in context.
+
+This pairs with the homeowner-mode framing principle (the
+home-management/proptech lens, not the find-a-pro lens) — both protect
+the long-arc product from default-LinkedIn patterns.
+
+---
+
 ## 🔴 Blocking — fix soon
 
 ### R2 SECRET — 65 chars instead of 64
