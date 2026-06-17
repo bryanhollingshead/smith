@@ -1142,6 +1142,58 @@ wrong domain model.
 
 ---
 
+## 🔥 Vision themes — captured as we go
+
+A holding area for the deep "why" — the emotionally compelling forces
+animating Smith. These belong **upstream** of product principles (and
+should be the source the principles derive from). To be lifted into
+`docs/vision.md` (a context-to-write doc that doesn't exist yet — see
+note at end of this section). **Captured here in Bryan's voice; do not
+paraphrase into neutral corporate speak when lifting.**
+
+### Three animating themes (2026-06-17, Bryan)
+
+Bryan: *"Some of the themes that keep surfacing for me are
+**civilizationmaxxing**, **celebrating the art of building and
+creating**, and **keeping communities close and connected**. Those are
+some of the more emotionally compelling forces that are animating my
+push to build this product."*
+
+**1. Civilizationmaxxing.** The literal act of building the civilization
+upward. Not in a tech-bro sense — in the most ancient sense: foundations,
+walls, roofs, water, light, infrastructure, the durable physical world
+that makes everything else possible. The tradespeople who do this work
+are civilization-builders. The hashtag is already in the demo seed
+(`#civilizationmaxxing` shows up on Bryan's seeded feed post about the
+Temple of Athena) — it's been in the cultural DNA from day one.
+
+**2. Celebrating the art of building and creating.** This is a craft-
+worship product. Trades are skilled artisans whose work is treated as
+disposable infrastructure in most of the market. Smith treats the work
+as ART — the carpenter's joinery, the mason's wall, the electrician's
+panel — and gives the craftsperson a portfolio, a peer network, and
+a public profile that says *this person made something that lasts.*
+
+**3. Keeping communities close and connected.** The neighborhood / civic
+fabric. Tradespeople who serve a town for thirty years know the houses,
+know the families, fixed everyone's plumbing. Homeowners who organize
+the picnic, fund the park bench, hire the local pro. Smith is the
+substrate that makes that proximity legible and reciprocal in a world
+that defaults to atomization. This is what the future homeowner-mode
+roadmap (neighborhood social, civic-funding, longitudinal home memory)
+lives inside of.
+
+**Note (vision doc needed).** The "context-to-write" list above
+(docs/domain-model.md, roles-and-permissions.md, product-principles.md,
+integration-roadmap.md) was framed around build-unblocking docs. It
+should now also include — as priority #0, upstream of the others — a
+`docs/vision.md` capturing these themes. When `docs/product-principles.md`
+gets written, it should explicitly trace each principle back to one of
+these themes so the connection between the deep "why" and the tactical
+"how" is documented.
+
+---
+
 ## 🧭 Product principles — captured as we go
 
 A holding area for durable product principles surfaced during build work,
