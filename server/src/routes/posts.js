@@ -45,7 +45,7 @@ function parseUrls(stored) {
 // photo list as a structured array, so we can include photo_url alongside
 // photo_kind. The COALESCE handles the no-photos case.
 const FEED_SQL = (extraWhere = '') => `
-  SELECT p.id, p.type, p.body, p.project_name, p.milestone, p.created_at,
+  SELECT p.id, p.type, p.body, p.project_name, p.milestone, p.created_at, p.edited_at,
          u.id   AS author_id,
          u.first_name, u.last_name, u.headline, u.avatar_tone, u.avatar_url, u.verified_smith,
          COALESCE(
@@ -96,11 +96,22 @@ router.get('/by-user/:id', requireAuth, async (req, res) => {
 
 function shapePost(r) {
   // Map each photo row to the client shape: kind for placeholder render,
-  // photo_urls for uploaded photo render.
-  const photos = (r.photos || []).map(p => ({
-    kind: p.kind,
-    photo_urls: parseUrls(p.photo_url),
-  }));
+  // photo_urls for uploaded photo render, keys so the client can echo
+  // existing uploads back via PATCH (photos are replace-all on edit).
+  const photos = (r.photos || []).map(p => {
+    let keys = null;
+    if (p.photo_url) {
+      try {
+        const parsed = typeof p.photo_url === 'string' ? JSON.parse(p.photo_url) : p.photo_url;
+        if (parsed && typeof parsed === 'object') keys = parsed;
+      } catch { /* ignore malformed */ }
+    }
+    return {
+      kind: p.kind,
+      photo_urls: parseUrls(p.photo_url),
+      keys,
+    };
+  });
 
   return {
     id: r.id,
@@ -109,6 +120,7 @@ function shapePost(r) {
     project_name: r.project_name,
     milestone: r.milestone,
     created_at: r.created_at,
+    edited_at: r.edited_at,
     author: {
       id: r.author_id,
       name: `${r.first_name} ${r.last_name}`.trim(),
@@ -122,6 +134,37 @@ function shapePost(r) {
     tags: r.tags || [],
     stats: { likes: r.likes, comments: r.comments, liked_by_me: r.liked_by_me },
   };
+}
+
+// Normalize a photos array from request body into rows for post_photos.
+// Accepts ['frame', 'wood'] (legacy) OR [{kind, keys}]. Caps at 4.
+function normalizePhotos(photos) {
+  const raw = Array.isArray(photos) ? photos.slice(0, 4) : [];
+  return raw.map(p => {
+    if (typeof p === 'string') {
+      return PHOTO_KINDS.has(p) ? { kind: p, photo_url: null } : null;
+    }
+    if (p && typeof p === 'object') {
+      const kind = (typeof p.kind === 'string' && PHOTO_KINDS.has(p.kind)) ? p.kind : null;
+      let photo_url = null;
+      if (p.keys && typeof p.keys === 'object'
+          && typeof p.keys.medium === 'string') {
+        const clean = {};
+        for (const k of ['thumb', 'medium', 'full']) {
+          if (typeof p.keys[k] === 'string') clean[k] = p.keys[k];
+        }
+        if (Object.keys(clean).length > 0) photo_url = JSON.stringify(clean);
+      }
+      if (!kind && !photo_url) return null;
+      return { kind: kind || 'frame', photo_url };
+    }
+    return null;
+  }).filter(Boolean);
+}
+
+function normalizeTags(tags) {
+  return (Array.isArray(tags) ? tags : [])
+    .map(t => String(t).trim()).filter(Boolean).slice(0, 6);
 }
 
 // POST /api/posts
@@ -144,35 +187,8 @@ router.post('/', requireAuth, async (req, res) => {
   if (!['project', 'hiring', 'milestone', 'photo'].includes(type))
     return res.status(400).json({ error: 'invalid type' });
 
-  // Normalize photos: accept ['frame', 'wood'] OR [{kind, keys}].
-  // Cap at 4 per post.
-  const rawPhotos = Array.isArray(photos) ? photos.slice(0, 4) : [];
-  const cleanPhotos = rawPhotos.map(p => {
-    if (typeof p === 'string') {
-      return PHOTO_KINDS.has(p) ? { kind: p, photo_url: null } : null;
-    }
-    if (p && typeof p === 'object') {
-      const kind = (typeof p.kind === 'string' && PHOTO_KINDS.has(p.kind)) ? p.kind : null;
-      // Validate `keys` if present — must be an object with at least medium or full.
-      let photo_url = null;
-      if (p.keys && typeof p.keys === 'object'
-          && typeof p.keys.medium === 'string') {
-        // Stringify a clean copy: only thumb/medium/full string keys allowed.
-        const clean = {};
-        for (const k of ['thumb', 'medium', 'full']) {
-          if (typeof p.keys[k] === 'string') clean[k] = p.keys[k];
-        }
-        if (Object.keys(clean).length > 0) photo_url = JSON.stringify(clean);
-      }
-      // At least one of kind/photo_url must be present, otherwise skip.
-      if (!kind && !photo_url) return null;
-      return { kind: kind || 'frame', photo_url };
-    }
-    return null;
-  }).filter(Boolean);
-
-  const cleanTags = (Array.isArray(tags) ? tags : [])
-    .map(t => String(t).trim()).filter(Boolean).slice(0, 6);
+  const cleanPhotos = normalizePhotos(photos);
+  const cleanTags = normalizeTags(tags);
 
   const post = await tx(async (c) => {
     const { rows } = await c.query(
@@ -201,6 +217,71 @@ router.post('/', requireAuth, async (req, res) => {
   // Return the freshly created post in feed shape so the UI can prepend it.
   const { rows } = await q(FEED_SQL(`WHERE p.id = $4`), [req.userId, 1, 0, post]);
   res.status(201).json({ post: shapePost(rows[0]) });
+});
+
+// PATCH /api/posts/:id
+// Partial update of a post by its author. Fields:
+//   - body            (string, must be non-empty if present)
+//   - project_name    (string | null — null clears)
+//   - milestone       (string | null — null clears)
+//   - photos          (array — REPLACES all photos; omit to leave alone)
+//   - tags            (array — REPLACES all tags; omit to leave alone)
+// Type is immutable; changing a post's type would shift its meaning too much.
+// Sets edited_at = NOW() on any successful update.
+router.patch('/:id', requireAuth, async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'Invalid id' });
+
+  const { body, project_name, milestone, photos, tags } = req.body || {};
+
+  if (body !== undefined && (typeof body !== 'string' || !body.trim())) {
+    return res.status(400).json({ error: 'body required' });
+  }
+
+  // Ownership check up front so we can 404 cleanly without partial writes.
+  const owned = await q(
+    `SELECT 1 FROM posts WHERE id = $1 AND author_id = $2`,
+    [id, req.userId]
+  );
+  if (!owned.rowCount) return res.status(404).json({ error: 'Not found' });
+
+  await tx(async (c) => {
+    // Build a dynamic SET clause for the scalar fields. edited_at always bumps.
+    const sets = ['edited_at = NOW()'];
+    const params = [];
+    if (body !== undefined)         { params.push(body);        sets.push(`body = $${params.length}`); }
+    if (project_name !== undefined) { params.push(project_name); sets.push(`project_name = $${params.length}`); }
+    if (milestone !== undefined)    { params.push(milestone);    sets.push(`milestone = $${params.length}`); }
+    params.push(id);
+    await c.query(`UPDATE posts SET ${sets.join(', ')} WHERE id = $${params.length}`, params);
+
+    if (photos !== undefined) {
+      const cleanPhotos = normalizePhotos(photos);
+      await c.query(`DELETE FROM post_photos WHERE post_id = $1`, [id]);
+      for (let i = 0; i < cleanPhotos.length; i++) {
+        const ph = cleanPhotos[i];
+        await c.query(
+          `INSERT INTO post_photos (post_id, photo_kind, photo_url, position)
+             VALUES ($1,$2,$3,$4)`,
+          [id, ph.kind, ph.photo_url, i]
+        );
+      }
+    }
+
+    if (tags !== undefined) {
+      const cleanTags = normalizeTags(tags);
+      await c.query(`DELETE FROM post_tags WHERE post_id = $1`, [id]);
+      for (const t of cleanTags) {
+        await c.query(
+          `INSERT INTO post_tags (post_id, tag) VALUES ($1,$2) ON CONFLICT DO NOTHING`,
+          [id, t]
+        );
+      }
+    }
+  });
+
+  const { rows } = await q(FEED_SQL(`WHERE p.id = $4`), [req.userId, 1, 0, id]);
+  res.json({ post: shapePost(rows[0]) });
 });
 
 // DELETE /api/posts/:id
