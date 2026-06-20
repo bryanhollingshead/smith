@@ -15,12 +15,18 @@ const KIND_LABELS = {
   post_like: 'Liked your post',
   post_comment: 'Commented on your post',
   skill_endorse: 'Endorsed your skill',
+  company_claim_request: 'is claiming a company you worked at',
+  company_claim_granted: 'confirmed your company claim',
 };
 
 export function AlertsPage() {
   const { navigate } = useRouter();
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
+  // request_id → 'confirm' | 'decline' once acted on, so the row reflects it
+  // without a full reload and the action buttons disappear.
+  const [acted, setActed] = useState(() => new Map());
+  const [busyId, setBusyId] = useState(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -36,6 +42,18 @@ export function AlertsPage() {
     })();
     return () => { cancelled = true; };
   }, []);
+
+  const cosign = async (requestId, decision) => {
+    setBusyId(requestId);
+    try {
+      await api.post(`/company-claim-requests/${requestId}/cosign`, { decision });
+      setActed(m => new Map(m).set(requestId, decision));
+    } catch (e) {
+      window.alert(e.data?.error || 'Could not record your decision.');
+    } finally {
+      setBusyId(null);
+    }
+  };
 
   return (
     <div style={{ background: B.bg, minHeight: '100vh' }}>
@@ -111,6 +129,36 @@ export function AlertsPage() {
                   padding: '7px 14px', borderRadius: 100, fontSize: 12, fontWeight: 600,
                   cursor: 'pointer',
                 }}>Review</button>
+              )}
+              {n.kind === 'company_claim_request' && n.subject_id && (
+                acted.has(n.subject_id) ? (
+                  <span style={{
+                    fontSize: 11, fontWeight: 700, letterSpacing: '0.04em',
+                    textTransform: 'uppercase',
+                    color: acted.get(n.subject_id) === 'confirm' ? B.accent : B.dim,
+                  }}>
+                    {acted.get(n.subject_id) === 'confirm' ? 'Confirmed' : 'Declined'}
+                  </span>
+                ) : (
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <button
+                      onClick={() => cosign(n.subject_id, 'decline')}
+                      disabled={busyId === n.subject_id}
+                      style={{
+                        background: 'transparent', border: `1px solid ${B.line}`,
+                        color: B.dim, padding: '7px 12px', borderRadius: 100,
+                        fontSize: 12, fontWeight: 500, cursor: 'pointer',
+                      }}>Decline</button>
+                    <button
+                      onClick={() => cosign(n.subject_id, 'confirm')}
+                      disabled={busyId === n.subject_id}
+                      style={{
+                        background: B.text, border: 'none', color: B.surface,
+                        padding: '7px 14px', borderRadius: 100, fontSize: 12, fontWeight: 600,
+                        cursor: busyId === n.subject_id ? 'wait' : 'pointer',
+                      }}>{busyId === n.subject_id ? '…' : 'Confirm'}</button>
+                  </div>
+                )
               )}
             </div>
           ))}

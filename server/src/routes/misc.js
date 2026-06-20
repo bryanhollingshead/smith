@@ -55,7 +55,7 @@ router.get('/search', requireAuth, async (req, res) => {
 // ── Notifications ───────────────────────────────────────────────────────────
 router.get('/notifications', requireAuth, async (req, res) => {
   const { rows } = await q(
-    `SELECT n.id, n.kind, n.body, n.read_at, n.created_at,
+    `SELECT n.id, n.kind, n.body, n.subject_id, n.read_at, n.created_at,
             u.id AS actor_id, u.first_name, u.last_name, u.avatar_tone, u.avatar_url
        FROM notifications n LEFT JOIN users u ON u.id = n.actor_id
       WHERE n.user_id = $1
@@ -72,6 +72,7 @@ router.get('/notifications', requireAuth, async (req, res) => {
       id: r.id,
       kind: r.kind,
       body: r.body,
+      subject_id: r.subject_id,
       read_at: r.read_at,
       created_at: r.created_at,
       actor: r.actor_id ? {

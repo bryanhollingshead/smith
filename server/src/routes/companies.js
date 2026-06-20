@@ -83,17 +83,360 @@ router.post('/companies', requireAuth, async (req, res) => {
   });
 });
 
-// POST /api/companies/:id/claim — claim an unclaimed company
+// POST /api/companies/:id/claim — immediate claim (solo case only).
+//
+// Only granted if (a) the requester has work-history at the company AND
+// (b) no other Smith user does. In that case there's no one to witness, so
+// the requester becomes steward straight away. For any company with two or
+// more workers in its work-history, use the request/cosign flow below.
 router.post('/companies/:id/claim', requireAuth, async (req, res) => {
   const id = parseInt(req.params.id, 10);
-  const r = await q(
-    `UPDATE companies SET claimed_by = $1
-       WHERE id = $2 AND claimed_by IS NULL
-       RETURNING id`,
-    [req.userId, id]
+
+  // Verify the company exists and is unclaimed.
+  const co = await q(
+    `SELECT id, name, claimed_by FROM companies WHERE id = $1`,
+    [id]
   );
-  if (!r.rowCount) return res.status(409).json({ error: 'Already claimed or not found' });
-  res.json({ ok: true });
+  if (!co.rowCount) return res.status(404).json({ error: 'Company not found' });
+  if (co.rows[0].claimed_by) return res.status(409).json({ error: 'Already claimed' });
+
+  // Caller must have work-history at this company.
+  const mine = await q(
+    `SELECT 1 FROM work_history WHERE company_id = $1 AND user_id = $2 LIMIT 1`,
+    [id, req.userId]
+  );
+  if (!mine.rowCount) {
+    return res.status(403).json({ error: 'You can only claim a company you have work history at.' });
+  }
+
+  // Solo guard — any other worker means a witnessed claim is required.
+  const others = await q(
+    `SELECT 1 FROM work_history WHERE company_id = $1 AND user_id <> $2 LIMIT 1`,
+    [id, req.userId]
+  );
+  if (others.rowCount) {
+    return res.status(409).json({
+      error: 'Other workers have this company in their work history. Send a claim request instead.',
+      code: 'cosign_required',
+    });
+  }
+
+  await q(`UPDATE companies SET claimed_by = $1 WHERE id = $2`, [req.userId, id]);
+  res.json({ ok: true, granted: true });
+});
+
+// POST /api/companies/:id/claim-request — start a witnessed claim.
+// Body: { cosigner_user_ids: number[] }
+//
+// The caller must have work-history at this company. The named cosigners
+// must also have work-history at the same company (and not be the caller).
+// Threshold defaults to 1 — see migration 018 for min_cosigns. Cosigners
+// receive a 'company_claim_request' notification.
+router.post('/companies/:id/claim-request', requireAuth, async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'Invalid id' });
+
+  const cosignerIds = Array.isArray(req.body?.cosigner_user_ids)
+    ? [...new Set(req.body.cosigner_user_ids.map(n => parseInt(n, 10)).filter(Number.isFinite))]
+    : [];
+  if (cosignerIds.length === 0) {
+    return res.status(400).json({ error: 'At least one cosigner is required.' });
+  }
+  if (cosignerIds.includes(req.userId)) {
+    return res.status(400).json({ error: 'You cannot cosign your own claim.' });
+  }
+
+  const co = await q(
+    `SELECT id, name, claimed_by FROM companies WHERE id = $1`,
+    [id]
+  );
+  if (!co.rowCount) return res.status(404).json({ error: 'Company not found' });
+  if (co.rows[0].claimed_by) return res.status(409).json({ error: 'Already claimed' });
+  const companyName = co.rows[0].name;
+
+  // Caller must have work-history at this company.
+  const mine = await q(
+    `SELECT 1 FROM work_history WHERE company_id = $1 AND user_id = $2 LIMIT 1`,
+    [id, req.userId]
+  );
+  if (!mine.rowCount) {
+    return res.status(403).json({ error: 'You can only claim a company you have work history at.' });
+  }
+
+  // Reject if there's already a pending request by this user (the DB unique
+  // partial index would catch it, but the error message is friendlier here).
+  const existing = await q(
+    `SELECT id FROM company_claim_requests
+      WHERE company_id = $1 AND requester_id = $2 AND status = 'pending'`,
+    [id, req.userId]
+  );
+  if (existing.rowCount) {
+    return res.status(409).json({ error: 'You already have a pending claim for this company.' });
+  }
+
+  // Every cosigner must themselves be in this company's work-history.
+  const valid = await q(
+    `SELECT DISTINCT user_id FROM work_history
+      WHERE company_id = $1 AND user_id = ANY($2::bigint[])`,
+    [id, cosignerIds]
+  );
+  const validSet = new Set(valid.rows.map(r => Number(r.user_id)));
+  const invalid = cosignerIds.filter(uid => !validSet.has(uid));
+  if (invalid.length) {
+    return res.status(400).json({
+      error: 'Cosigners must have work history at this company.',
+      invalid_user_ids: invalid,
+    });
+  }
+
+  const result = await tx(async (c) => {
+    const { rows: rr } = await c.query(
+      `INSERT INTO company_claim_requests (company_id, requester_id)
+         VALUES ($1,$2) RETURNING id, min_cosigns, created_at`,
+      [id, req.userId]
+    );
+    const request = rr[0];
+    for (const uid of cosignerIds) {
+      await c.query(
+        `INSERT INTO company_claim_cosigns (request_id, cosigner_id) VALUES ($1,$2)`,
+        [request.id, uid]
+      );
+      await c.query(
+        `INSERT INTO notifications (user_id, kind, actor_id, subject_id, body)
+           VALUES ($1, 'company_claim_request', $2, $3, $4)`,
+        [uid, req.userId, request.id, `is claiming ${companyName}. Confirm?`]
+      );
+    }
+    return request;
+  });
+
+  res.status(201).json({
+    request: {
+      id: result.id,
+      company_id: id,
+      min_cosigns: result.min_cosigns,
+      created_at: result.created_at,
+    },
+  });
+});
+
+// POST /api/company-claim-requests/:id/cosign — confirm or decline.
+// Body: { decision: 'confirm' | 'decline' }
+//
+// Caller must be a named cosigner on the request with decision='pending'.
+// On a confirm that reaches the threshold, the company is granted to the
+// requester and the requester gets a 'company_claim_granted' notification.
+router.post('/company-claim-requests/:id/cosign', requireAuth, async (req, res) => {
+  const requestId = parseInt(req.params.id, 10);
+  if (!Number.isFinite(requestId)) return res.status(400).json({ error: 'Invalid id' });
+  const decision = String(req.body?.decision || '');
+  if (!['confirm', 'decline'].includes(decision)) {
+    return res.status(400).json({ error: 'decision must be confirm or decline' });
+  }
+
+  const reqRow = await q(
+    `SELECT ccr.id, ccr.company_id, ccr.requester_id, ccr.status, ccr.min_cosigns,
+            c.name AS company_name, c.claimed_by
+       FROM company_claim_requests ccr JOIN companies c ON c.id = ccr.company_id
+      WHERE ccr.id = $1`,
+    [requestId]
+  );
+  if (!reqRow.rowCount) return res.status(404).json({ error: 'Request not found' });
+  const r = reqRow.rows[0];
+  if (r.status !== 'pending') return res.status(409).json({ error: 'Request is no longer pending' });
+
+  const mine = await q(
+    `SELECT decision FROM company_claim_cosigns
+      WHERE request_id = $1 AND cosigner_id = $2`,
+    [requestId, req.userId]
+  );
+  if (!mine.rowCount) return res.status(403).json({ error: 'You are not a cosigner on this request.' });
+  if (mine.rows[0].decision !== 'pending') {
+    return res.status(409).json({ error: 'You have already decided on this request.' });
+  }
+
+  const outcome = await tx(async (c) => {
+    await c.query(
+      `UPDATE company_claim_cosigns SET decision = $1, decided_at = NOW()
+        WHERE request_id = $2 AND cosigner_id = $3`,
+      [decision, requestId, req.userId]
+    );
+
+    if (decision !== 'confirm') return { granted: false };
+
+    const { rows: cnt } = await c.query(
+      `SELECT COUNT(*)::int AS n FROM company_claim_cosigns
+        WHERE request_id = $1 AND decision = 'confirm'`,
+      [requestId]
+    );
+    if (cnt[0].n < r.min_cosigns) return { granted: false, confirms: cnt[0].n };
+
+    // Reached threshold — grant if company is still unclaimed.
+    if (r.claimed_by) return { granted: false, confirms: cnt[0].n, raced: true };
+    await c.query(`UPDATE companies SET claimed_by = $1 WHERE id = $2 AND claimed_by IS NULL`,
+      [r.requester_id, r.company_id]);
+    await c.query(
+      `UPDATE company_claim_requests SET status = 'granted', granted_at = NOW() WHERE id = $1`,
+      [requestId]
+    );
+    await c.query(
+      `INSERT INTO notifications (user_id, kind, actor_id, subject_id, body)
+         VALUES ($1, 'company_claim_granted', $2, $3, $4)`,
+      [r.requester_id, req.userId, r.company_id,
+       `confirmed your claim to ${r.company_name}. You are now its steward.`]
+    );
+    return { granted: true, confirms: cnt[0].n };
+  });
+
+  res.json({ ok: true, decision, ...outcome });
+});
+
+// GET /api/companies/:id/claim-state — current claim state for a company.
+// Returns claimed_by user (if any), and the pending request with its cosigns
+// (if any). Used by the claim modal + the work-history badge.
+router.get('/companies/:id/claim-state', requireAuth, async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'Invalid id' });
+
+  const co = await q(
+    `SELECT c.id, c.name, c.claimed_by,
+            u.first_name AS steward_first, u.last_name AS steward_last
+       FROM companies c LEFT JOIN users u ON u.id = c.claimed_by
+      WHERE c.id = $1`,
+    [id]
+  );
+  if (!co.rowCount) return res.status(404).json({ error: 'Company not found' });
+  const row = co.rows[0];
+
+  let claimed_by = null;
+  if (row.claimed_by) {
+    claimed_by = {
+      id: row.claimed_by,
+      name: `${row.steward_first || ''} ${row.steward_last || ''}`.trim(),
+    };
+  }
+
+  let pending_request = null;
+  if (!claimed_by) {
+    const reqRow = await q(
+      `SELECT ccr.id, ccr.requester_id, ccr.min_cosigns, ccr.created_at,
+              ru.first_name AS req_first, ru.last_name AS req_last
+         FROM company_claim_requests ccr JOIN users ru ON ru.id = ccr.requester_id
+        WHERE ccr.company_id = $1 AND ccr.status = 'pending'
+        ORDER BY ccr.created_at ASC LIMIT 1`,
+      [id]
+    );
+    if (reqRow.rowCount) {
+      const rr = reqRow.rows[0];
+      const cs = await q(
+        `SELECT ccc.cosigner_id, ccc.decision,
+                u.first_name, u.last_name, u.avatar_tone, u.avatar_url
+           FROM company_claim_cosigns ccc JOIN users u ON u.id = ccc.cosigner_id
+          WHERE ccc.request_id = $1
+          ORDER BY ccc.cosigner_id`,
+        [rr.id]
+      );
+      const cosigns = cs.rows.map(c => ({
+        user_id: c.cosigner_id,
+        name: `${c.first_name || ''} ${c.last_name || ''}`.trim(),
+        avatar_urls: parseUrls(c.avatar_url),
+        avatar_tone: c.avatar_tone,
+        decision: c.decision,
+      }));
+      pending_request = {
+        id: rr.id,
+        requester: {
+          id: rr.requester_id,
+          name: `${rr.req_first || ''} ${rr.req_last || ''}`.trim(),
+        },
+        min_cosigns: rr.min_cosigns,
+        confirms: cosigns.filter(c => c.decision === 'confirm').length,
+        cosigns,
+        created_at: rr.created_at,
+      };
+    }
+  }
+
+  res.json({ claimed_by, pending_request });
+});
+
+// GET /api/companies/:id/workers — Smith users with work-history at the
+// company. Used by the claim modal to populate the cosigner picker.
+// Excludes the caller (you can't cosign your own claim).
+router.get('/companies/:id/workers', requireAuth, async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'Invalid id' });
+
+  const { rows } = await q(
+    `SELECT DISTINCT u.id, u.first_name, u.last_name, u.avatar_tone, u.avatar_url,
+            u.headline
+       FROM work_history wh JOIN users u ON u.id = wh.user_id
+      WHERE wh.company_id = $1 AND wh.user_id <> $2
+      ORDER BY u.first_name ASC, u.last_name ASC`,
+    [id, req.userId]
+  );
+
+  res.json({
+    workers: rows.map(r => ({
+      id: r.id,
+      name: `${r.first_name || ''} ${r.last_name || ''}`.trim(),
+      initials: ((r.first_name?.[0] || '') + (r.last_name?.[0] || '')).toUpperCase(),
+      headline: r.headline,
+      avatar_tone: r.avatar_tone,
+      avatar_urls: parseUrls(r.avatar_url),
+    })),
+  });
+});
+
+// GET /api/me/claim-requests — claim requests touching the current user.
+// outgoing = pending requests this user filed
+// incoming = pending requests where this user is a cosigner with decision='pending'
+router.get('/me/claim-requests', requireAuth, async (req, res) => {
+  const outP = q(
+    `SELECT ccr.id, ccr.company_id, c.name AS company_name, ccr.min_cosigns, ccr.created_at,
+            (SELECT COUNT(*)::int FROM company_claim_cosigns
+              WHERE request_id = ccr.id AND decision = 'confirm') AS confirms
+       FROM company_claim_requests ccr JOIN companies c ON c.id = ccr.company_id
+      WHERE ccr.requester_id = $1 AND ccr.status = 'pending'
+      ORDER BY ccr.created_at DESC`,
+    [req.userId]
+  );
+  const inP = q(
+    `SELECT ccr.id, ccr.company_id, c.name AS company_name, ccr.min_cosigns, ccr.created_at,
+            ccr.requester_id, u.first_name AS req_first, u.last_name AS req_last,
+            u.avatar_tone AS req_avatar_tone, u.avatar_url AS req_avatar_url
+       FROM company_claim_cosigns ccc
+       JOIN company_claim_requests ccr ON ccr.id = ccc.request_id
+       JOIN companies c ON c.id = ccr.company_id
+       JOIN users u ON u.id = ccr.requester_id
+      WHERE ccc.cosigner_id = $1 AND ccc.decision = 'pending' AND ccr.status = 'pending'
+      ORDER BY ccr.created_at DESC`,
+    [req.userId]
+  );
+  const [out, inc] = await Promise.all([outP, inP]);
+  res.json({
+    outgoing: out.rows.map(r => ({
+      id: r.id,
+      company_id: r.company_id,
+      company_name: r.company_name,
+      min_cosigns: r.min_cosigns,
+      confirms: r.confirms,
+      created_at: r.created_at,
+    })),
+    incoming: inc.rows.map(r => ({
+      id: r.id,
+      company_id: r.company_id,
+      company_name: r.company_name,
+      min_cosigns: r.min_cosigns,
+      requester: {
+        id: r.requester_id,
+        name: `${r.req_first || ''} ${r.req_last || ''}`.trim(),
+        avatar_urls: parseUrls(r.req_avatar_url),
+        avatar_tone: r.req_avatar_tone,
+      },
+      created_at: r.created_at,
+    })),
+  });
 });
 
 // ────────────────────────────────────────────────────────────────────────────

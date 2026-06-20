@@ -3,11 +3,12 @@
 // CredentialsB, RightRailB. Each takes a `profile` object as returned by
 // /api/profiles/me or /api/profiles/:id.
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { B } from '../lib/theme.js';
 import { Icon } from '../components/Icon.jsx';
 import { Photo } from '../components/Primitives.jsx';
 import { SmithAvatar } from './SmithAvatar.jsx';
+import { ClaimCompanyModal } from './ClaimCompanyModal.jsx';
 import { api, auth } from '../lib/api.js';
 import { useRouter } from '../lib/router.jsx';
 
@@ -237,6 +238,24 @@ export function CompaniesSection({ profile, isMe, onEdit }) {
     return out;
   });
 
+  // Map of company_id → my pending outgoing claim request (if any).
+  // Only loaded when the viewer owns the work-history; visitors don't need it.
+  const [pendingByCo, setPendingByCo] = useState(() => new Map());
+  // Optimistic "we just claimed this" set, so the solo-case claim flips the
+  // badge to "Claimed" without a full profile reload.
+  const [claimedNow, setClaimedNow] = useState(() => new Set());
+  const [claimingCo, setClaimingCo] = useState(null);
+
+  const loadPending = React.useCallback(async () => {
+    if (!isMe) return;
+    try {
+      const { outgoing } = await api.get('/me/claim-requests');
+      setPendingByCo(new Map(outgoing.map(o => [o.company_id, o])));
+    } catch { /* non-fatal */ }
+  }, [isMe]);
+
+  useEffect(() => { loadPending(); }, [loadPending]);
+
   if (profile.work_history.length === 0) {
     return (
       <EmptySection
@@ -315,13 +334,16 @@ export function CompaniesSection({ profile, isMe, onEdit }) {
                   <span className="serif" style={{
                     color: B.text, fontWeight: 600, fontSize: 19, letterSpacing: '-0.01em',
                   }}>{co.company_name}</span>
-                  {!co.company_claimed && (
-                    <span style={{
-                      fontSize: 10, color: B.dim, padding: '2px 8px',
-                      border: `1px dashed ${B.line}`, borderRadius: 100,
-                      fontStyle: 'italic',
-                    }}>company unclaimed</span>
-                  )}
+                  <CompanyClaimBadge
+                    company={co}
+                    isMe={isMe}
+                    pendingRequest={pendingByCo.get(co.company_id)}
+                    claimedOptimistic={claimedNow.has(co.company_id)}
+                    onClick={() => setClaimingCo({
+                      id: co.company_id,
+                      name: co.company_name,
+                    })}
+                  />
                 </div>
                 <div style={{ color: B.text, fontSize: 14, marginTop: 4 }}>
                   {co.role} · <span style={{ color: B.dim }}>{co.company_type}</span>
@@ -390,7 +412,77 @@ export function CompaniesSection({ profile, isMe, onEdit }) {
           </div>
         ))}
       </div>
+
+      {claimingCo && (
+        <ClaimCompanyModal
+          company={claimingCo}
+          onClose={() => setClaimingCo(null)}
+          onChanged={() => {
+            // Solo case may have flipped to claimed in one round-trip; mark
+            // optimistically so the badge reflects it without a full reload.
+            setClaimedNow(s => new Set(s).add(claimingCo.id));
+            loadPending();
+          }}
+        />
+      )}
     </section>
+  );
+}
+
+// Badge that sits next to the company name and reflects claim state.
+// - Claimed (real or optimistic): a quiet "Claimed" tag.
+// - The viewer has an open request: "Claim pending · N/M".
+// - The viewer owns the work-history and the company is open: clickable
+//   "Claim this company" affordance.
+// - Other viewer + unclaimed: the original quiet "company unclaimed" tag.
+function CompanyClaimBadge({ company, isMe, pendingRequest, claimedOptimistic, onClick }) {
+  const claimed = company.company_claimed || claimedOptimistic;
+  if (claimed) {
+    return (
+      <span style={{
+        fontSize: 10, color: B.accent, padding: '2px 8px',
+        background: B.accentSoft, borderRadius: 100, fontWeight: 700,
+        letterSpacing: '0.04em', textTransform: 'uppercase',
+      }}>Claimed</span>
+    );
+  }
+  // The row itself is a <button> for expand/collapse, so clicks here must
+  // stop propagation or they'd toggle the row instead of opening the modal.
+  // Also rendered as <span role="button"> to avoid nested <button> elements,
+  // which is invalid HTML and breaks accessibility tooling.
+  const stop = (e) => { e.stopPropagation(); onClick?.(); };
+  if (isMe && pendingRequest) {
+    return (
+      <span role="button" tabIndex={0}
+        onClick={stop}
+        onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') stop(e); }}
+        style={{
+          background: 'transparent', border: `1px dashed ${B.accent}`,
+          color: B.accent, padding: '2px 8px', borderRadius: 100,
+          fontSize: 10, fontStyle: 'italic', cursor: 'pointer',
+        }}>
+        Claim pending · {pendingRequest.confirms}/{pendingRequest.min_cosigns}
+      </span>
+    );
+  }
+  if (isMe) {
+    return (
+      <span role="button" tabIndex={0}
+        onClick={stop}
+        onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') stop(e); }}
+        style={{
+          background: 'transparent', border: `1px solid ${B.accent}`,
+          color: B.accent, padding: '2px 10px', borderRadius: 100,
+          fontSize: 10, fontWeight: 700, letterSpacing: '0.04em',
+          textTransform: 'uppercase', cursor: 'pointer',
+        }}>Claim</span>
+    );
+  }
+  return (
+    <span style={{
+      fontSize: 10, color: B.dim, padding: '2px 8px',
+      border: `1px dashed ${B.line}`, borderRadius: 100, fontStyle: 'italic',
+    }}>company unclaimed</span>
   );
 }
 
