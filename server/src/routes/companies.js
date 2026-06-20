@@ -440,6 +440,219 @@ router.get('/me/claim-requests', requireAuth, async (req, res) => {
 });
 
 // ────────────────────────────────────────────────────────────────────────────
+// Company public profile
+// ────────────────────────────────────────────────────────────────────────────
+
+// GET /api/companies/:id/profile — read view of a company's page.
+// Returns company fields + steward (if claimed) + crew (users with work-history
+// here, with tenure derived from the work_history row) + jobsites attached to
+// the company, with the signature jobsite split out for the hero block.
+// is_steward tells the client whether to render edit affordances.
+router.get('/companies/:id/profile', requireAuth, async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'Invalid id' });
+
+  const coP = q(
+    `SELECT c.id, c.name, c.type, c.logo_tone, c.logo_url,
+            c.tagline, c.founded_year, c.primary_location, c.about,
+            c.signature_jobsite_id, c.claimed_by, c.created_at, c.updated_at,
+            u.first_name AS steward_first, u.last_name AS steward_last,
+            u.avatar_tone AS steward_avatar_tone, u.avatar_url AS steward_avatar_url
+       FROM companies c LEFT JOIN users u ON u.id = c.claimed_by
+      WHERE c.id = $1`,
+    [id]
+  );
+  // Crew = anyone with a work_history row at this company. Tenure from
+  // work_history's from_year/to_year. One row per user (collapsing multiple
+  // tenures) keeps the crew list clean; we pick the latest by from_year.
+  const crewP = q(
+    `SELECT DISTINCT ON (u.id)
+            u.id, u.first_name, u.last_name, u.avatar_tone, u.avatar_url, u.headline,
+            wh.role, wh.from_year, wh.to_year, wh.is_current
+       FROM work_history wh JOIN users u ON u.id = wh.user_id
+      WHERE wh.company_id = $1
+      ORDER BY u.id, wh.from_year DESC NULLS LAST, wh.id DESC`,
+    [id]
+  );
+  // All jobsites attached to this company (via work-history). Used both for
+  // the work feed and for the steward's signature-pick affordance.
+  const jobsitesP = q(
+    `SELECT js.id, js.title, js.structure_type, js.job_type, js.year,
+            js.kind, js.location, js.duration, js.photo_kind, js.photo_url,
+            js.is_featured, js.position, wh.user_id AS worker_id,
+            wu.first_name AS worker_first, wu.last_name AS worker_last
+       FROM jobsites js
+       JOIN work_history wh ON wh.id = js.work_history_id
+       JOIN users wu ON wu.id = wh.user_id
+      WHERE wh.company_id = $1
+      ORDER BY js.year DESC NULLS LAST, js.id DESC
+      LIMIT 60`,
+    [id]
+  );
+
+  const [co, crew, jobsites] = await Promise.all([coP, crewP, jobsitesP]);
+  if (!co.rowCount) return res.status(404).json({ error: 'Company not found' });
+  const c = co.rows[0];
+
+  // Gallery photos for any jobsite shown here (signature + recent work).
+  const jobsiteIds = jobsites.rows.map(j => j.id);
+  let photosBySite = new Map();
+  if (jobsiteIds.length) {
+    const { rows: jp } = await q(
+      `SELECT jobsite_id, photo_url, position
+         FROM jobsite_photos
+        WHERE jobsite_id = ANY($1::bigint[])
+        ORDER BY position ASC, id ASC`,
+      [jobsiteIds]
+    );
+    for (const p of jp) {
+      if (!photosBySite.has(p.jobsite_id)) photosBySite.set(p.jobsite_id, []);
+      photosBySite.get(p.jobsite_id).push({ urls: parseUrls(p.photo_url), position: p.position });
+    }
+  }
+
+  const shapeJobsite = (j) => ({
+    id: j.id,
+    title: j.title,
+    structure_type: j.structure_type,
+    job_type: j.job_type,
+    year: j.year,
+    kind: j.kind,
+    location: j.location,
+    duration: j.duration,
+    photo_kind: j.photo_kind,
+    photo_urls: parseUrls(j.photo_url),
+    photos: photosBySite.get(j.id) || [],
+    worker: {
+      id: j.worker_id,
+      name: `${j.worker_first || ''} ${j.worker_last || ''}`.trim(),
+    },
+  });
+
+  const signature = c.signature_jobsite_id
+    ? jobsites.rows.find(j => j.id === c.signature_jobsite_id)
+    : null;
+  const recent = jobsites.rows.filter(j => j.id !== c.signature_jobsite_id).slice(0, 12);
+
+  res.json({
+    company: {
+      id: c.id,
+      name: c.name,
+      type: c.type,
+      logo_tone: c.logo_tone,
+      logo_urls: parseUrls(c.logo_url),
+      tagline: c.tagline,
+      founded_year: c.founded_year,
+      primary_location: c.primary_location,
+      about: c.about,
+      created_at: c.created_at,
+      updated_at: c.updated_at,
+    },
+    steward: c.claimed_by ? {
+      id: c.claimed_by,
+      name: `${c.steward_first || ''} ${c.steward_last || ''}`.trim(),
+      avatar_urls: parseUrls(c.steward_avatar_url),
+      avatar_tone: c.steward_avatar_tone,
+    } : null,
+    is_steward: c.claimed_by === req.userId,
+    crew: crew.rows.map(u => ({
+      id: u.id,
+      name: `${u.first_name || ''} ${u.last_name || ''}`.trim(),
+      initials: ((u.first_name?.[0] || '') + (u.last_name?.[0] || '')).toUpperCase(),
+      avatar_urls: parseUrls(u.avatar_url),
+      avatar_tone: u.avatar_tone,
+      headline: u.headline,
+      role: u.role,
+      from_year: u.from_year,
+      to_year: u.to_year,
+      is_current: u.is_current,
+    })),
+    signature_jobsite: signature ? shapeJobsite(signature) : null,
+    recent_work: recent.map(shapeJobsite),
+  });
+});
+
+// PATCH /api/companies/:id — steward-only updates to the company profile.
+// Allowed fields: name, type, tagline, founded_year, primary_location, about,
+// signature_jobsite_id. Logo upload is a separate endpoint (POST /photos/company/:id/logo).
+router.patch('/companies/:id', requireAuth, async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'Invalid id' });
+
+  // Steward gate.
+  const own = await q(
+    `SELECT claimed_by FROM companies WHERE id = $1`,
+    [id]
+  );
+  if (!own.rowCount) return res.status(404).json({ error: 'Company not found' });
+  if (own.rows[0].claimed_by !== req.userId) {
+    return res.status(403).json({ error: 'Only the steward can edit this company.' });
+  }
+
+  const body = req.body || {};
+  const sets = [];
+  const params = [];
+  const push = (col, val) => { params.push(val); sets.push(`${col} = $${params.length}`); };
+
+  if ('name' in body) {
+    const v = String(body.name || '').trim();
+    if (!v) return res.status(400).json({ error: 'name cannot be empty' });
+    push('name', v);
+  }
+  if ('type' in body) {
+    push('type', body.type == null ? null : String(body.type).trim());
+  }
+  if ('tagline' in body) {
+    push('tagline', body.tagline == null ? null : String(body.tagline).trim().slice(0, 280));
+  }
+  if ('founded_year' in body) {
+    const v = body.founded_year;
+    if (v === null || v === '') {
+      push('founded_year', null);
+    } else {
+      const n = parseInt(v, 10);
+      if (!Number.isFinite(n) || n < 1700 || n > 2200) {
+        return res.status(400).json({ error: 'founded_year must be a reasonable year' });
+      }
+      push('founded_year', n);
+    }
+  }
+  if ('primary_location' in body) {
+    push('primary_location', body.primary_location == null ? null : String(body.primary_location).trim());
+  }
+  if ('about' in body) {
+    push('about', body.about == null ? null : String(body.about));
+  }
+  if ('signature_jobsite_id' in body) {
+    if (body.signature_jobsite_id == null) {
+      push('signature_jobsite_id', null);
+    } else {
+      const sjid = parseInt(body.signature_jobsite_id, 10);
+      if (!Number.isFinite(sjid)) {
+        return res.status(400).json({ error: 'signature_jobsite_id must be a number or null' });
+      }
+      // The pinned jobsite must belong to a worker at this company.
+      const valid = await q(
+        `SELECT 1 FROM jobsites js
+           JOIN work_history wh ON wh.id = js.work_history_id
+          WHERE js.id = $1 AND wh.company_id = $2 LIMIT 1`,
+        [sjid, id]
+      );
+      if (!valid.rowCount) {
+        return res.status(400).json({ error: 'signature jobsite must belong to this company' });
+      }
+      push('signature_jobsite_id', sjid);
+    }
+  }
+
+  if (sets.length === 0) return res.status(400).json({ error: 'No fields to update' });
+
+  params.push(id);
+  await q(`UPDATE companies SET ${sets.join(', ')} WHERE id = $${params.length}`, params);
+  res.json({ ok: true });
+});
+
+// ────────────────────────────────────────────────────────────────────────────
 // Work history (a tenure at a company)
 // ────────────────────────────────────────────────────────────────────────────
 

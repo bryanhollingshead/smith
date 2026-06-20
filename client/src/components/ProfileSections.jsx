@@ -231,6 +231,7 @@ export function AboutSection({ profile, isMe, onEdit }) {
 
 // ── Where I've worked ──────────────────────────────────────────────────
 export function CompaniesSection({ profile, isMe, onEdit }) {
+  const { navigate } = useRouter();
   // Default open = the most recent (current) company; collapse the rest.
   const [open, setOpen] = useState(() => {
     const out = {};
@@ -316,24 +317,38 @@ export function CompaniesSection({ profile, isMe, onEdit }) {
                 display: 'flex', alignItems: 'flex-start', gap: 18, textAlign: 'left',
               }}
             >
-              <div style={{
-                width: 54, height: 54, borderRadius: '50%',
-                flexShrink: 0, position: 'relative', zIndex: 1,
-                border: `1px solid ${B.line}`,
-                overflow: 'hidden',
-                background: co.company_logo_urls?.thumb || co.company_logo_urls?.medium
-                  ? `center/cover url("${co.company_logo_urls.thumb || co.company_logo_urls.medium}") no-repeat`
-                  : B.bg,
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                color: B.accent,
-              }}>
+              <div
+                role="link"
+                tabIndex={0}
+                onClick={(e) => { e.stopPropagation(); navigate(`/company/${co.company_id}`); }}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.stopPropagation(); navigate(`/company/${co.company_id}`); } }}
+                title="View company"
+                style={{
+                  width: 54, height: 54, borderRadius: '50%',
+                  flexShrink: 0, position: 'relative', zIndex: 1,
+                  border: `1px solid ${B.line}`,
+                  overflow: 'hidden',
+                  background: co.company_logo_urls?.thumb || co.company_logo_urls?.medium
+                    ? `center/cover url("${co.company_logo_urls.thumb || co.company_logo_urls.medium}") no-repeat`
+                    : B.bg,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  color: B.accent,
+                  cursor: 'pointer',
+                }}>
                 {!co.company_logo_urls && <Icon name="building" size={22} stroke={1.4}/>}
               </div>
               <div style={{ flex: 1, paddingTop: 4 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                  <span className="serif" style={{
-                    color: B.text, fontWeight: 600, fontSize: 19, letterSpacing: '-0.01em',
-                  }}>{co.company_name}</span>
+                  <span
+                    role="link"
+                    tabIndex={0}
+                    onClick={(e) => { e.stopPropagation(); navigate(`/company/${co.company_id}`); }}
+                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.stopPropagation(); navigate(`/company/${co.company_id}`); } }}
+                    className="serif"
+                    style={{
+                      color: B.text, fontWeight: 600, fontSize: 19, letterSpacing: '-0.01em',
+                      cursor: 'pointer',
+                    }}>{co.company_name}</span>
                   <CompanyClaimBadge
                     company={co}
                     isMe={isMe}

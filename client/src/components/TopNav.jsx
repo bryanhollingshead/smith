@@ -291,6 +291,7 @@ function SearchBox() {
                     )}
                     title={c.name}
                     sub={c.type + (c.claimed ? '' : ' · unclaimed')}
+                    onClick={() => { setOpen(false); setQ(''); navigate(`/company/${c.id}`); }}
                   />
                 );
               })}

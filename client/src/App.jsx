@@ -20,6 +20,7 @@ import { EditProfilePage } from './pages/EditProfile.jsx';
 import { FeedPage } from './pages/Feed.jsx';
 import { NetworkPage } from './pages/Network.jsx';
 import { AlertsPage } from './pages/Alerts.jsx';
+import { CompanyPage } from './pages/Company.jsx';
 import { NewsPage } from './pages/News.jsx';
 import { NewsSavedPage } from './pages/NewsSaved.jsx';
 import { JobsPage } from './pages/Jobs.jsx';
@@ -153,6 +154,8 @@ export function App() {
           return <NetworkPage/>;
         }
         if (path === '/alerts') return <AlertsPage/>;
+        const companyMatch = match('/company/:id', path);
+        if (companyMatch) return <CompanyPage companyId={parseInt(companyMatch.id, 10)}/>;
         if (path === '/news') return <NewsPage/>;
         if (path === '/news/saved') return <NewsSavedPage/>;
         if (path === '/jobs') return <JobsPage/>;
