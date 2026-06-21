@@ -77,7 +77,18 @@ router.post('/', requireAuth, withUpload, async (req, res) => {
     timestamp: new Date().toISOString(),
   };
 
-  const signal = { source, type, comment, helpRequest, context };
+  // Structured annotation marks from the full-window overlay, when used.
+  // Each entry is { kind: 'pin'|'box'|'arrow', x, y, w?, h?, x2?, y2?, comment? }.
+  // The PNG already has the marks burned in; this lets Linear render them as
+  // a numbered list under the screenshot so triagers can quote them.
+  let marks = [];
+  if (Array.isArray(payload.marks)) {
+    marks = payload.marks
+      .filter(m => m && typeof m === 'object' && ['pin', 'box', 'arrow'].includes(m.kind))
+      .slice(0, 64);  // belt + suspenders on payload size
+  }
+
+  const signal = { source, type, comment, helpRequest, context, marks };
 
   try {
     const { issueUrl, identifier } = await createSignalInLinear(signal, req.file?.buffer);

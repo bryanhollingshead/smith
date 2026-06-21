@@ -21,12 +21,17 @@
 //   shows up on every screenshot.
 
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { toPng } from 'html-to-image';
 import { B } from '../lib/theme.js';
 import { Icon } from './Icon.jsx';
 import { api } from '../lib/api.js';
 import { useAuth } from '../lib/AuthContext.jsx';
 import { useRouter } from '../lib/router.jsx';
+import { captureViewportPng } from '../lib/feedback-capture.js';
+import { AnnotateOverlay } from './AnnotateOverlay.jsx';
+
+// VITE_FEEDBACK_FULL_ANNOTATE defaults to ON. Flip to 'false' in env to
+// fall back to the inline editor.
+const FULL_ANNOTATE = import.meta.env.VITE_FEEDBACK_FULL_ANNOTATE !== 'false';
 
 const TYPES = [
   { k: 'bug',      label: 'Bug',      icon: 'hardhat' },
@@ -90,32 +95,25 @@ function FeedbackSidebar({ user, path, onClose }) {
   const [comment, setComment] = useState('');
   const [helpRequest, setHelpRequest] = useState('');
   const [helpDisabled, setHelpDisabled] = useState(true);  // stub: AI agent not wired
-  const [screenshot, setScreenshot] = useState(null);   // dataURL — original
+  const [screenshot, setScreenshot] = useState(null);   // dataURL — raw capture (viewport-cropped)
   const [annotated, setAnnotated] = useState(null);     // dataURL — annotated PNG to upload
+  const [marks, setMarks] = useState([]);               // structured marks for the Linear description
   const [capturing, setCapturing] = useState(false);
   const [error, setError] = useState(null);
   const [result, setResult] = useState(null);
+  const [annotating, setAnnotating] = useState(false);  // full-window overlay open
 
   // Screenshot capture. We hide the widget for the duration via the data
-  // attribute the filter callback excludes. Snapshot resolution is capped to
-  // 2x devicePixelRatio for sane upload sizes.
+  // attribute the filter callback excludes inside captureViewportPng. The
+  // resulting PNG is cropped to the user's actual viewport at capture time.
   const capture = async () => {
     setError(null);
     setCapturing(true);
     try {
-      const pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
-      const dataUrl = await toPng(document.body, {
-        cacheBust: true,
-        pixelRatio,
-        filter: (node) => {
-          // Drop the feedback widget itself from the capture so the floating
-          // button + open sidebar don't show up in the screenshot.
-          if (node?.getAttribute && node.getAttribute('data-feedback-widget') === 'true') return false;
-          return true;
-        },
-      });
+      const dataUrl = await captureViewportPng();
       setScreenshot(dataUrl);
       setAnnotated(dataUrl);
+      setMarks([]);
     } catch (e) {
       console.error('[feedback] capture failed', e);
       setError('Could not capture the screen. Try again.');
@@ -127,6 +125,7 @@ function FeedbackSidebar({ user, path, onClose }) {
   const clearShot = () => {
     setScreenshot(null);
     setAnnotated(null);
+    setMarks([]);
   };
 
   const submit = async () => {
@@ -143,6 +142,7 @@ function FeedbackSidebar({ user, path, onClose }) {
         type,
         comment: comment.trim(),
         helpRequest: helpRequest.trim() || undefined,
+        marks,                       // structured pins/boxes/arrows from the overlay
         context: buildContext(user, path),
       };
       fd.append('payload', JSON.stringify(payload));
@@ -159,6 +159,18 @@ function FeedbackSidebar({ user, path, onClose }) {
 
   return (
     <>
+      {annotating && screenshot && (
+        <AnnotateOverlay
+          screenshot={screenshot}
+          initialMarks={marks}
+          onCancel={() => setAnnotating(false)}
+          onDone={(dataUrl, ms) => {
+            setAnnotated(dataUrl);
+            setMarks(ms);
+            setAnnotating(false);
+          }}
+        />
+      )}
       <div
         onClick={onClose}
         style={{
@@ -238,7 +250,15 @@ function FeedbackSidebar({ user, path, onClose }) {
                   {capturing ? 'Capturing…' : 'Capture this screen'}
                 </button>
               )}
-              {screenshot && (
+              {screenshot && FULL_ANNOTATE && (
+                <ScreenshotPreview
+                  annotated={annotated}
+                  marks={marks}
+                  onAnnotate={() => setAnnotating(true)}
+                  onClear={clearShot}
+                />
+              )}
+              {screenshot && !FULL_ANNOTATE && (
                 <AnnotationEditor
                   screenshot={screenshot}
                   onChange={setAnnotated}
@@ -319,6 +339,50 @@ function FeedbackSidebar({ user, path, onClose }) {
         )}
       </aside>
     </>
+  );
+}
+
+// ── Screenshot preview (full-annotate mode) ──────────────────────────
+// Shown after capture when VITE_FEEDBACK_FULL_ANNOTATE !== 'false'.
+// Just a thumbnail + Annotate / Clear actions. The real editor lives in
+// AnnotateOverlay (full-window).
+function ScreenshotPreview({ annotated, marks, onAnnotate, onClear }) {
+  const markCount = (marks || []).filter(m => m.kind !== 'arrow').length;
+  return (
+    <div style={{
+      background: B.bg, border: `1px solid ${B.line}`, borderRadius: 4,
+      padding: 12,
+    }}>
+      <div style={{
+        overflow: 'hidden', borderRadius: 4, border: `1px solid ${B.line}`,
+        background: '#000', marginBottom: 10,
+      }}>
+        <img
+          src={annotated}
+          alt="captured viewport"
+          style={{ display: 'block', width: '100%', height: 'auto' }}
+        />
+      </div>
+      <div style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        gap: 8,
+      }}>
+        <span style={{ color: B.faint, fontSize: 11, fontStyle: 'italic' }}>
+          {markCount > 0
+            ? `${markCount} comment${markCount === 1 ? '' : 's'} placed`
+            : 'No annotations yet'}
+        </span>
+        <div style={{ display: 'flex', gap: 6 }}>
+          <button onClick={onClear} style={miniBtn}>Clear</button>
+          <button onClick={onAnnotate} style={{
+            ...miniBtn,
+            background: B.text, color: B.surface, border: 'none',
+          }}>
+            <Icon name="edit" size={11}/> Annotate
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 

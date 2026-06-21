@@ -95,6 +95,41 @@ function buildTitle(signal) {
   return `[${signal.type}] ${trimmed}`;
 }
 
+// Render the structured marks array into a readable Annotations block.
+// Pins use sequential numbers (#1, #2, ...) so they line up with the
+// numbers burned into the screenshot. Boxes use A/B/C letters for the
+// same reason. Arrows are markup-only — no comment to render.
+function renderAnnotations(marks) {
+  if (!Array.isArray(marks) || marks.length === 0) return null;
+  const lines = [];
+  let pinN = 0;
+  let boxN = 0;
+  for (const m of marks) {
+    if (m.kind === 'pin') {
+      pinN += 1;
+      const c = (m.comment || '').trim() || '_(no comment)_';
+      lines.push(`**#${pinN}.** ${c}`);
+    } else if (m.kind === 'box') {
+      const letter = boxLetter(boxN);
+      boxN += 1;
+      const c = (m.comment || '').trim() || '_(no comment)_';
+      lines.push(`**${letter}.** ${c}`);
+    }
+  }
+  return lines;
+}
+
+function boxLetter(n) {
+  let s = '';
+  n = n + 1;
+  while (n > 0) {
+    const r = (n - 1) % 26;
+    s = String.fromCharCode(65 + r) + s;
+    n = Math.floor((n - 1) / 26);
+  }
+  return s;
+}
+
 // Markdown description: structured so a human triaging in Linear sees the
 // what+where at a glance, and an LLM agent can parse the same data later.
 function buildDescription(signal, assetUrl) {
@@ -107,6 +142,13 @@ function buildDescription(signal, assetUrl) {
   if (signal.helpRequest) {
     lines.push('### Get-help request');
     lines.push(signal.helpRequest.trim());
+    lines.push('');
+  }
+
+  const annotations = renderAnnotations(signal.marks);
+  if (annotations) {
+    lines.push('### Annotations');
+    lines.push(...annotations);
     lines.push('');
   }
 
