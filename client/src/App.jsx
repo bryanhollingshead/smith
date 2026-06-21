@@ -76,6 +76,13 @@ export function App() {
     if (slugMatchPub && !/^\d+$/.test(slugMatchPub.slug)) {
       return <PublicProfilePage slug={slugMatchPub.slug}/>;
     }
+    // Company pages are public-by-default — crawlers, AI agents, and prospective
+    // visitors coming from search all land here without auth. The page itself
+    // handles is_steward = false gracefully (no edit affordances).
+    const companyMatchPub = match('/company/:id', path);
+    if (companyMatchPub) {
+      return <CompanyPage companyIdOrSlug={companyMatchPub.id}/>;
+    }
     // Phase 6: hire-me entry (homeowner-acquisition path #1) is public — it
     // collects an address then routes to /auth/homeowner with the address
     // pre-filled.

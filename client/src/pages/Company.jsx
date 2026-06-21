@@ -14,13 +14,15 @@ import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { B } from '../lib/theme.js';
 import { TopNav } from '../components/TopNav.jsx';
 import { Icon } from '../components/Icon.jsx';
-import { Photo } from '../components/Primitives.jsx';
+import { Photo, SmithLogo } from '../components/Primitives.jsx';
 import { SmithAvatar } from '../components/SmithAvatar.jsx';
 import { api } from '../lib/api.js';
 import { useRouter } from '../lib/router.jsx';
+import { useAuth } from '../lib/AuthContext.jsx';
 
 export function CompanyPage({ companyIdOrSlug }) {
   const { navigate } = useRouter();
+  const { user } = useAuth();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -52,7 +54,9 @@ export function CompanyPage({ companyIdOrSlug }) {
 
   return (
     <div style={{ background: B.bg, minHeight: '100vh' }}>
-      <TopNav/>
+      {user
+        ? <TopNav/>
+        : <PublicChrome navigate={navigate}/>}
       {loading && (
         <main style={pageMain}>
           <Skeleton/>
@@ -824,6 +828,35 @@ function Section({ title, subtitle, children }) {
       {!subtitle && <div style={{ height: 12 }}/>}
       {children}
     </section>
+  );
+}
+
+// Minimal chrome for signed-out visitors — Smith mark + Sign in / Build CTA.
+// TopNav assumes auth + MessagesProvider context and would crash here.
+function PublicChrome({ navigate }) {
+  return (
+    <header style={{
+      background: B.surface, borderBottom: `1px solid ${B.line}`, padding: '14px 32px',
+      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+    }}>
+      <button onClick={() => navigate('/')} style={{
+        background: 'transparent', border: 'none', padding: 0, cursor: 'pointer',
+      }}>
+        <SmithLogo size={24}/>
+      </button>
+      <div style={{ display: 'flex', gap: 8 }}>
+        <button onClick={() => navigate('/auth/signin')} style={{
+          background: 'transparent', border: `1px solid ${B.line}`, color: B.text,
+          padding: '7px 16px', borderRadius: 100, fontSize: 13, fontWeight: 600,
+          cursor: 'pointer',
+        }}>Sign in</button>
+        <button onClick={() => navigate('/auth/signup')} style={{
+          background: B.text, border: 'none', color: B.surface,
+          padding: '7px 16px', borderRadius: 100, fontSize: 13, fontWeight: 600,
+          cursor: 'pointer',
+        }}>Build your profile</button>
+      </div>
+    </header>
   );
 }
 
