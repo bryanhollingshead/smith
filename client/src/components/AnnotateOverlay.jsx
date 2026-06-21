@@ -195,7 +195,10 @@ export function AnnotateOverlay({ screenshot, initialMarks = [], onCancel, onDon
     onDone(dataUrl, clean);
   };
 
-  // Active popover position in CSS pixels relative to the canvas wrapper.
+  // Active popover position in viewport (fixed) coordinates. Rendered as a
+  // sibling of the wrap so wrap's overflow:hidden can't clip it. Flips to
+  // the left of the mark if there's not enough room on the right; clamps
+  // vertically so it never falls off the bottom of the screen.
   const selected = marks.find(m => m.id === selectedId) || null;
   const popoverStyle = useMemo(() => {
     if (!selected || !canvasRef.current) return null;
@@ -203,24 +206,36 @@ export function AnnotateOverlay({ screenshot, initialMarks = [], onCancel, onDon
     const rect = canvas.getBoundingClientRect();
     const sx = rect.width / canvas.width;
     const sy = rect.height / canvas.height;
-    let anchorX, anchorY;
+    // Mark's center / anchor in screen (viewport) coords.
+    let rightX, leftX, anchorY;
     if (selected.kind === 'pin') {
-      anchorX = (selected.x + PIN_RADIUS) * sx;
-      anchorY = selected.y * sy;
+      rightX = rect.left + (selected.x + PIN_RADIUS) * sx;
+      leftX  = rect.left + (selected.x - PIN_RADIUS) * sx;
+      anchorY = rect.top + selected.y * sy;
     } else if (selected.kind === 'box') {
-      anchorX = (selected.x + selected.w) * sx;
-      anchorY = selected.y * sy;
+      rightX = rect.left + (selected.x + selected.w) * sx;
+      leftX  = rect.left + selected.x * sx;
+      anchorY = rect.top + selected.y * sy;
     } else {
       return null;
     }
+    const POP_W = 300;
+    const POP_H_EST = 180;
+    const MARGIN = 12;
+    const fitsRight = rightX + MARGIN + POP_W <= window.innerWidth - 8;
+    const left = fitsRight
+      ? rightX + MARGIN
+      : Math.max(8, leftX - MARGIN - POP_W);
+    const top = Math.min(
+      window.innerHeight - POP_H_EST - 8,
+      Math.max(8, anchorY)
+    );
     return {
-      position: 'absolute',
-      // rect-relative coords inside the wrap, with rect offset from wrap.
-      left: rect.left - (wrapRef.current?.getBoundingClientRect().left || 0) + anchorX + 12,
-      top:  rect.top  - (wrapRef.current?.getBoundingClientRect().top  || 0) + anchorY,
+      position: 'fixed',
+      left, top, width: POP_W,
       zIndex: 5,
     };
-  }, [selected, scale]);
+  }, [selected, scale, marks]);
 
   return (
     <div style={{
@@ -258,18 +273,19 @@ export function AnnotateOverlay({ screenshot, initialMarks = [], onCancel, onDon
             }}
           />
         )}
-        {selected && popoverStyle && (
-          <CommentPopover
-            style={popoverStyle}
-            mark={selected}
-            number={pinIndex.get(selected.id)}
-            letter={boxIndex.has(selected.id) ? letterAt(boxIndex.get(selected.id)) : null}
-            onChange={(text) => updateComment(selected.id, text)}
-            onDelete={() => deleteMark(selected.id)}
-            onClose={() => setSelectedId(null)}
-          />
-        )}
       </div>
+
+      {selected && popoverStyle && (
+        <CommentPopover
+          style={popoverStyle}
+          mark={selected}
+          number={pinIndex.get(selected.id)}
+          letter={boxIndex.has(selected.id) ? letterAt(boxIndex.get(selected.id)) : null}
+          onChange={(text) => updateComment(selected.id, text)}
+          onDelete={() => deleteMark(selected.id)}
+          onClose={() => setSelectedId(null)}
+        />
+      )}
     </div>
   );
 }
