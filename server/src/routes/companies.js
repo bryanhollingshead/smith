@@ -11,8 +11,31 @@
 
 import { Router } from 'express';
 import { q, tx } from '../db.js';
-import { requireAuth } from '../middleware.js';
+import { requireAuth, optionalAuth } from '../middleware.js';
 import { publicUrl } from '../storage.js';
+import { generateUniqueCompanySlug } from '../slug.js';
+
+// Resolve "either an id or a slug" to a company id. Returns null if no match.
+async function resolveCompanyParam(idOrSlug) {
+  if (/^\d+$/.test(String(idOrSlug))) {
+    const n = parseInt(idOrSlug, 10);
+    const r = await q(`SELECT id FROM companies WHERE id = $1`, [n]);
+    return r.rowCount ? n : null;
+  }
+  const r = await q(`SELECT id FROM companies WHERE public_slug = $1`, [String(idOrSlug)]);
+  return r.rowCount ? r.rows[0].id : null;
+}
+
+// Ensure a company has a public_slug. Cheap to run idempotently — we only
+// generate when null. Returns the slug.
+async function ensureCompanySlug(companyId, fallbackName = '') {
+  const r = await q(`SELECT public_slug, name FROM companies WHERE id = $1`, [companyId]);
+  if (!r.rowCount) return null;
+  if (r.rows[0].public_slug) return r.rows[0].public_slug;
+  const slug = await generateUniqueCompanySlug(r.rows[0].name || fallbackName);
+  await q(`UPDATE companies SET public_slug = $1 WHERE id = $2 AND public_slug IS NULL`, [slug, companyId]);
+  return slug;
+}
 
 const router = Router();
 
@@ -448,15 +471,17 @@ router.get('/me/claim-requests', requireAuth, async (req, res) => {
 // here, with tenure derived from the work_history row) + jobsites attached to
 // the company, with the signature jobsite split out for the hero block.
 // is_steward tells the client whether to render edit affordances.
-router.get('/companies/:id/profile', requireAuth, async (req, res) => {
-  const id = parseInt(req.params.id, 10);
-  if (!Number.isFinite(id)) return res.status(400).json({ error: 'Invalid id' });
+router.get('/companies/:idOrSlug/profile', optionalAuth, async (req, res) => {
+  const id = await resolveCompanyParam(req.params.idOrSlug);
+  if (!id) return res.status(404).json({ error: 'Company not found' });
 
   const coP = q(
-    `SELECT c.id, c.name, c.type, c.logo_tone, c.logo_url,
+    `SELECT c.id, c.name, c.type, c.public_slug, c.logo_tone, c.logo_url,
+            c.cover_url, c.cover_kind,
             c.tagline, c.founded_year, c.primary_location, c.about,
             c.signature_jobsite_id, c.claimed_by, c.created_at, c.updated_at,
             u.first_name AS steward_first, u.last_name AS steward_last,
+            u.public_slug AS steward_slug, u.is_public AS steward_is_public,
             u.avatar_tone AS steward_avatar_tone, u.avatar_url AS steward_avatar_url
        FROM companies c LEFT JOIN users u ON u.id = c.claimed_by
       WHERE c.id = $1`,
@@ -465,13 +490,28 @@ router.get('/companies/:id/profile', requireAuth, async (req, res) => {
   // Crew = anyone with a work_history row at this company. Tenure from
   // work_history's from_year/to_year. One row per user (collapsing multiple
   // tenures) keeps the crew list clean; we pick the latest by from_year.
+  // public_slug + is_public let the client and the SEO layer render canonical
+  // /profile/<slug> links when the crew member has opted into public surface.
   const crewP = q(
     `SELECT DISTINCT ON (u.id)
             u.id, u.first_name, u.last_name, u.avatar_tone, u.avatar_url, u.headline,
+            u.public_slug, u.is_public,
             wh.role, wh.from_year, wh.to_year, wh.is_current
        FROM work_history wh JOIN users u ON u.id = wh.user_id
       WHERE wh.company_id = $1
       ORDER BY u.id, wh.from_year DESC NULLS LAST, wh.id DESC`,
+    [id]
+  );
+  const tradesP = q(
+    `SELECT t.id, t.name, t.icon, ct.position
+       FROM company_trades ct JOIN trades t ON t.id = ct.trade_id
+      WHERE ct.company_id = $1
+      ORDER BY ct.position ASC, t.name ASC`,
+    [id]
+  );
+  const skillsP = q(
+    `SELECT id, name, position FROM company_skills
+      WHERE company_id = $1 ORDER BY position ASC, id ASC`,
     [id]
   );
   // All jobsites attached to this company (via work-history). Used both for
@@ -490,9 +530,15 @@ router.get('/companies/:id/profile', requireAuth, async (req, res) => {
     [id]
   );
 
-  const [co, crew, jobsites] = await Promise.all([coP, crewP, jobsitesP]);
+  const [co, crew, jobsites, trades, skills] = await Promise.all([coP, crewP, jobsitesP, tradesP, skillsP]);
   if (!co.rowCount) return res.status(404).json({ error: 'Company not found' });
   const c = co.rows[0];
+
+  // Backfill slug lazily on first read — every existing row already has one
+  // from migration 020, but this catches any edge where it's null.
+  if (!c.public_slug) {
+    c.public_slug = await ensureCompanySlug(c.id, c.name);
+  }
 
   // Gallery photos for any jobsite shown here (signature + recent work).
   const jobsiteIds = jobsites.rows.map(j => j.id);
@@ -539,8 +585,11 @@ router.get('/companies/:id/profile', requireAuth, async (req, res) => {
       id: c.id,
       name: c.name,
       type: c.type,
+      public_slug: c.public_slug,
       logo_tone: c.logo_tone,
       logo_urls: parseUrls(c.logo_url),
+      cover_kind: c.cover_kind,
+      cover_urls: parseUrls(c.cover_url),
       tagline: c.tagline,
       founded_year: c.founded_year,
       primary_location: c.primary_location,
@@ -551,14 +600,16 @@ router.get('/companies/:id/profile', requireAuth, async (req, res) => {
     steward: c.claimed_by ? {
       id: c.claimed_by,
       name: `${c.steward_first || ''} ${c.steward_last || ''}`.trim(),
+      public_slug: c.steward_is_public ? c.steward_slug : null,
       avatar_urls: parseUrls(c.steward_avatar_url),
       avatar_tone: c.steward_avatar_tone,
     } : null,
-    is_steward: c.claimed_by === req.userId,
+    is_steward: !!req.userId && c.claimed_by === req.userId,
     crew: crew.rows.map(u => ({
       id: u.id,
       name: `${u.first_name || ''} ${u.last_name || ''}`.trim(),
       initials: ((u.first_name?.[0] || '') + (u.last_name?.[0] || '')).toUpperCase(),
+      public_slug: u.is_public ? u.public_slug : null,
       avatar_urls: parseUrls(u.avatar_url),
       avatar_tone: u.avatar_tone,
       headline: u.headline,
@@ -567,6 +618,10 @@ router.get('/companies/:id/profile', requireAuth, async (req, res) => {
       to_year: u.to_year,
       is_current: u.is_current,
     })),
+    trades: trades.rows.map(t => ({
+      id: t.id, name: t.name, icon: t.icon, position: t.position,
+    })),
+    skills: skills.rows.map(s => ({ id: s.id, name: s.name, position: s.position })),
     signature_jobsite: signature ? shapeJobsite(signature) : null,
     recent_work: recent.map(shapeJobsite),
   });
@@ -644,11 +699,70 @@ router.patch('/companies/:id', requireAuth, async (req, res) => {
       push('signature_jobsite_id', sjid);
     }
   }
+  if ('cover_kind' in body) {
+    push('cover_kind', body.cover_kind == null ? null : String(body.cover_kind).trim());
+  }
 
-  if (sets.length === 0) return res.status(400).json({ error: 'No fields to update' });
+  // trades + skills are stored in separate tables, applied in the same tx
+  // as the column updates so the whole edit is atomic.
+  const tradesNext = Array.isArray(body.trades) ? body.trades : null;
+  const skillsNext = Array.isArray(body.skills) ? body.skills : null;
 
-  params.push(id);
-  await q(`UPDATE companies SET ${sets.join(', ')} WHERE id = $${params.length}`, params);
+  if (sets.length === 0 && tradesNext === null && skillsNext === null) {
+    return res.status(400).json({ error: 'No fields to update' });
+  }
+
+  await tx(async (c) => {
+    if (sets.length) {
+      params.push(id);
+      await c.query(`UPDATE companies SET ${sets.join(', ')} WHERE id = $${params.length}`, params);
+    }
+    if (tradesNext) {
+      // Accept either trade names (will be matched against the catalog) or
+      // {id} objects. Replace-all to make the steward's edit a snapshot.
+      const cleanIds = [];
+      for (const t of tradesNext.slice(0, 8)) {
+        let tradeId = null;
+        if (t && typeof t === 'object' && Number.isFinite(parseInt(t.id, 10))) {
+          tradeId = parseInt(t.id, 10);
+        } else if (typeof t === 'string' && t.trim()) {
+          const { rows } = await c.query(
+            `SELECT id FROM trades WHERE LOWER(name) = LOWER($1) LIMIT 1`,
+            [t.trim()]
+          );
+          if (rows.length) tradeId = rows[0].id;
+        }
+        if (tradeId && !cleanIds.includes(tradeId)) cleanIds.push(tradeId);
+      }
+      await c.query(`DELETE FROM company_trades WHERE company_id = $1`, [id]);
+      for (let i = 0; i < cleanIds.length; i++) {
+        await c.query(
+          `INSERT INTO company_trades (company_id, trade_id, position) VALUES ($1,$2,$3)`,
+          [id, cleanIds[i], i]
+        );
+      }
+    }
+    if (skillsNext) {
+      const cleanNames = [...new Set(
+        skillsNext
+          .map(s => (s && typeof s === 'object' ? s.name : s))
+          .map(s => String(s || '').trim())
+          .filter(Boolean)
+      )].slice(0, 12);
+      await c.query(`DELETE FROM company_skills WHERE company_id = $1`, [id]);
+      for (let i = 0; i < cleanNames.length; i++) {
+        await c.query(
+          `INSERT INTO company_skills (company_id, name, position) VALUES ($1,$2,$3)`,
+          [id, cleanNames[i], i]
+        );
+      }
+    }
+  });
+
+  // First steward edit is a good moment to ensure a slug exists (already
+  // backfilled by migration 020, but defensive).
+  await ensureCompanySlug(id);
+
   res.json({ ok: true });
 });
 

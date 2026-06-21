@@ -39,6 +39,8 @@ import publicRouter from './routes/public.js';
 import hireMeRouter from './routes/hire-me.js';
 import homesRouter from './routes/homes.js';
 import adminUsersRouter from './routes/admin-users.js';
+import seoRouter from './routes/seo.js';
+import { createSpaMeta } from './spa-meta.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
@@ -83,6 +85,13 @@ app.use('/api', hireMeRouter);        // /hire-me/inbox, /hire-me/:id  (phase 5,
 app.use('/api', homesRouter);         // /places/autocomplete (public), /homes/* (authed)  (phase 6, homeowner entry)
 app.use('/api', adminUsersRouter);    // /admin/demo-users, /admin/users/:id/{impersonate,password}  (admin-only)
 
+// SEO + AI-discoverability surface — mounted at root (not /api). These are
+// reachable by humans, crawlers, and LLM agents. Order matters: they must
+// register BEFORE the SPA fallback below so /robots.txt etc. don't fall
+// through to index.html. The .md digests and meta-injection handlers are
+// likewise registered before the catch-all.
+app.use('/', seoRouter);
+
 // ── Static SPA serving (production only) ────────────────────────────────
 // The React build lands at ../../client/dist relative to this file. We:
 //   1. Serve every file in dist verbatim (JS, CSS, fonts, etc.)
@@ -107,6 +116,11 @@ if (IS_PROD && haveBuild) {
       }
     },
   }));
+
+  // Per-route meta + JSON-LD injection for the public SEO surfaces.
+  // Registered BEFORE the bare SPA fallback so /company/:slug and
+  // /profile/:slug get hydrated head sections that AI crawlers can read.
+  app.use('/', createSpaMeta(clientDist));
 
   // SPA fallback: everything that isn't an API route → serve index.html.
   // We do this AFTER the API routes are registered so /api/* still 404s

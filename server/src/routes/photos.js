@@ -183,6 +183,45 @@ router.post('/company/:id/logo', requireAuth, withUpload, async (req, res) => {
   }
 });
 
+router.post('/company/:id/cover', requireAuth, withUpload, async (req, res) => {
+  const companyId = parseInt(req.params.id, 10);
+  if (!Number.isFinite(companyId)) return res.status(400).json({ error: 'Invalid id' });
+
+  const auth = await checkCompanyAuth(companyId, req.userId);
+  if (!auth.ok) return res.status(auth.status).json({ error: auth.error });
+
+  try {
+    const oldCover = (await q('SELECT cover_url FROM companies WHERE id = $1', [companyId])).rows[0]?.cover_url;
+    const variants = await processCover(req.file.buffer, {
+      namespace: 'companies',
+      ownerId: companyId,
+      label: 'cover',
+    });
+    await q(
+      'UPDATE companies SET cover_url = $1 WHERE id = $2',
+      [JSON.stringify(variants), companyId]
+    );
+    if (oldCover) deleteVariants(oldCover);
+
+    res.status(201).json({ cover: { keys: variants, urls: urlsFor(variants) } });
+  } catch (e) {
+    console.error('[photos] company cover failed:', e);
+    res.status(400).json({ error: e.message || 'Could not process image.' });
+  }
+});
+
+router.delete('/company/:id/cover', requireAuth, async (req, res) => {
+  const companyId = parseInt(req.params.id, 10);
+  if (!Number.isFinite(companyId)) return res.status(400).json({ error: 'Invalid id' });
+  const auth = await checkCompanyAuth(companyId, req.userId);
+  if (!auth.ok) return res.status(auth.status).json({ error: auth.error });
+  const cur = await q('SELECT cover_url FROM companies WHERE id = $1', [companyId]);
+  const old = cur.rows[0]?.cover_url;
+  await q('UPDATE companies SET cover_url = NULL WHERE id = $1', [companyId]);
+  if (old) deleteVariants(old);
+  res.json({ ok: true });
+});
+
 router.delete('/company/:id/logo', requireAuth, async (req, res) => {
   const companyId = parseInt(req.params.id, 10);
   if (!Number.isFinite(companyId)) return res.status(400).json({ error: 'Invalid id' });

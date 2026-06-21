@@ -54,6 +54,36 @@ export async function requireAuth(req, res, next) {
 }
 
 /**
+ * Like requireAuth but never 401s. If a valid token is present we attach
+ * req.user / req.userId; if not, we just pass through. Use for routes that
+ * are public-readable but personalize the response when a viewer is signed
+ * in (e.g., setting is_steward, is_me, liked_by_me).
+ */
+export async function optionalAuth(req, res, next) {
+  const header = req.headers.authorization || '';
+  const m = header.match(/^Bearer\s+(.+)$/i);
+  let token = m ? m[1] : null;
+  if (!token && typeof req.query?.token === 'string' && req.query.token.length > 0) {
+    token = req.query.token;
+  }
+  if (!token) return next();
+
+  try {
+    const payload = verifyToken(token);
+    const { rows } = await q(
+      `SELECT id, email, email_verified, first_name, last_name, onboarding_done
+         FROM users WHERE id = $1`,
+      [payload.sub]
+    );
+    if (rows.length) {
+      req.user = rows[0];
+      req.userId = rows[0].id;
+    }
+  } catch { /* ignore — anonymous */ }
+  next();
+}
+
+/**
  * Requires the email to be verified. Use AFTER requireAuth.
  * Onboarding endpoints can skip this (a user mid-onboarding still needs API access).
  */

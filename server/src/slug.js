@@ -46,6 +46,23 @@ export async function generateUniqueSlug(firstName, lastName) {
   return `${base}-${randomSuffix(8)}`;
 }
 
+// Find a unique slug for a company. Mirrors the user pattern:
+// "<name-letters>-####" so the router can disambiguate slug vs numeric id
+// without a DB lookup. Locked at first generation; renames don't shift it.
+export async function generateUniqueCompanySlug(name) {
+  const body = normalizeNamePart(name) || 'company';
+
+  for (let i = 0; i < 12; i++) {
+    const candidate = `${body}-${randomSuffix(4)}`;
+    const { rows } = await q(
+      `SELECT 1 FROM companies WHERE public_slug = $1 LIMIT 1`,
+      [candidate]
+    );
+    if (rows.length === 0) return candidate;
+  }
+  return `${body}-${randomSuffix(8)}`;
+}
+
 // Generate a magic-link token. 32 url-safe chars, ~190 bits of entropy.
 // Stored verbatim in hire_me_tokens.token (which is UNIQUE — collisions
 // at this entropy are vanishingly rare but the DB enforces anyway).

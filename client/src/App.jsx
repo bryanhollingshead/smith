@@ -155,7 +155,7 @@ export function App() {
         }
         if (path === '/alerts') return <AlertsPage/>;
         const companyMatch = match('/company/:id', path);
-        if (companyMatch) return <CompanyPage companyId={parseInt(companyMatch.id, 10)}/>;
+        if (companyMatch) return <CompanyPage companyIdOrSlug={companyMatch.id}/>;
         if (path === '/news') return <NewsPage/>;
         if (path === '/news/saved') return <NewsSavedPage/>;
         if (path === '/jobs') return <JobsPage/>;
