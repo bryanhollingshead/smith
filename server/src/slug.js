@@ -46,12 +46,21 @@ export async function generateUniqueSlug(firstName, lastName) {
   return `${base}-${randomSuffix(8)}`;
 }
 
-// Find a unique slug for a company. Mirrors the user pattern:
-// "<name-letters>-####" so the router can disambiguate slug vs numeric id
-// without a DB lookup. Locked at first generation; renames don't shift it.
+// Find a unique slug for a company. Unlike users (where "first-last" almost
+// always collides), most company names are unique — so we try the clean stem
+// first and only add a numeric suffix when there's a real collision. The
+// router still disambiguates slug vs numeric id by checking for all-digits,
+// so a slug without a suffix is safe.
+//
+// Locked at first generation; later renames don't shift it.
 export async function generateUniqueCompanySlug(name) {
   const body = normalizeNamePart(name) || 'company';
 
+  // Bare stem first.
+  const bare = await q(`SELECT 1 FROM companies WHERE public_slug = $1 LIMIT 1`, [body]);
+  if (bare.rows.length === 0) return body;
+
+  // Fall back to "<stem>-####" with retries on collision.
   for (let i = 0; i < 12; i++) {
     const candidate = `${body}-${randomSuffix(4)}`;
     const { rows } = await q(
