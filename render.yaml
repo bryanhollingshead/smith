@@ -112,6 +112,26 @@ services:
       - key: RENTCAST_API_KEY
         sync: false
 
+      # Linear — feedback widget posts Signal payloads here. Personal API key,
+      # team id, and one label id per Signal source + type. See
+      # server/.env.example for instructions on finding the IDs.
+      - key: LINEAR_API_KEY
+        sync: false
+      - key: LINEAR_TEAM_ID
+        sync: false
+      - key: LINEAR_LABEL_PM
+        sync: false
+      - key: LINEAR_LABEL_CUSTOMER
+        sync: false
+      - key: LINEAR_LABEL_BUG
+        sync: false
+      - key: LINEAR_LABEL_IDEA
+        sync: false
+      - key: LINEAR_LABEL_QUESTION
+        sync: false
+      - key: LINEAR_LABEL_OTHER
+        sync: false
+
       # Google Maps Platform key for Street View Static images. This is a
       # CLIENT-side key (Vite injects VITE_* into the bundle at build time)
       # — restrict it in Google Cloud Console to HTTP referrers smith.app/*

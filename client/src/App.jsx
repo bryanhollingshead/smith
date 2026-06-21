@@ -39,6 +39,7 @@ import { ModeSetupHomeownerPage } from './pages/ModeSetupHomeowner.jsx';
 import { ModeSetupTradesmanPage } from './pages/ModeSetupTradesman.jsx';
 import { HomeownerShell } from './components/HomeownerShell.jsx';
 import { ImpersonationBanner } from './components/AdminTools.jsx';
+import { FeedbackWidget } from './components/FeedbackWidget.jsx';
 import { modeOf, MODE } from './lib/mode.js';
 
 export function App() {
@@ -128,6 +129,7 @@ export function App() {
         <ImpersonationBanner/>
         <MessagesProvider>
           <HomeownerShell/>
+          <FeedbackWidget/>
         </MessagesProvider>
       </>
     );
@@ -141,6 +143,7 @@ export function App() {
     <>
     <ImpersonationBanner/>
     <MessagesProvider>
+      <FeedbackWidget/>
       {(() => {
         if (path === '/' || path === '/feed') return <FeedPage/>;
         if (path === '/profile') return <ProfilePage/>;

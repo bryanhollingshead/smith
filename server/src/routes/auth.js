@@ -74,6 +74,7 @@ async function shapeAuthedUser(row) {
     hiring_context: row.hiring_context ?? null,
     onboarding_done: row.onboarding_done,
     is_admin: !!row.is_admin,
+    is_pm: !!row.is_pm,
     is_demo: !!row.is_demo,
     profiles: {
       tradesman: !!trades.rowCount,
@@ -262,7 +263,7 @@ router.post('/signin', async (req, res) => {
 
   const { rows } = await q(
     `SELECT id, email, password_hash, email_verified, onboarding_done, role, hiring_context,
-            is_admin, is_demo
+            is_admin, is_pm, is_demo
        FROM users WHERE email = $1`,
     [email]
   );
@@ -341,7 +342,7 @@ router.get('/me', requireAuth, async (req, res) => {
   const { rows } = await q(
     `SELECT id, email, email_verified, first_name, last_name, headline, location,
             onboarding_step, onboarding_done, avatar_tone, verified_smith,
-            role, hiring_context, is_admin, is_demo
+            role, hiring_context, is_admin, is_pm, is_demo
        FROM users WHERE id = $1`,
     [req.userId]
   );
@@ -381,7 +382,7 @@ router.patch('/me/mode', requireAuth, async (req, res) => {
     `UPDATE users SET role = $1, updated_at = NOW() WHERE id = $2
        RETURNING id, email, email_verified, first_name, last_name, headline, location,
                  onboarding_step, onboarding_done, avatar_tone, verified_smith,
-                 role, hiring_context, is_admin, is_demo`,
+                 role, hiring_context, is_admin, is_pm, is_demo`,
     [stored, req.userId]
   );
   const shaped = await shapeAuthedUser(rows[0]);

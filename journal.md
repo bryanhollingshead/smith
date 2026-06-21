@@ -4,7 +4,7 @@ A durable record of decisions made, work shipped, and what's still open.
 Paste this at the start of a session so Claude is caught up in 30 seconds.
 Update it at the end of each session.
 
-**Last updated:** 2026-06-13 (One account, two modes — intent-fork signup + post-login mode toggle)
+**Last updated:** 2026-06-20 (Signal feedback widget v1 — Linear-backed, PM vs customer source)
 **Live URL:** https://smith-h86n.onrender.com
 **Repo:** github.com/bryanhollingshead/smith
 **Sole dev:** Bryan Hollingshead (product background)
@@ -13,6 +13,106 @@ Update it at the end of each session.
 ---
 
 ## ✅ Done — recent wins (in roughly reverse chronological order)
+
+### Signal feedback widget v1 — Linear-backed (2026-06-20)
+First piece of the Signal layer: a floating feedback affordance available
+app-wide for any signed-in user. Bottom-right button opens a slide-out
+sidebar where the user picks a type (bug / idea / question / other),
+captures a still of the current screen, annotates it (box or pin + a short
+label baked into the exported PNG), writes a comment, and submits. The
+backend re-derives `source` (pm vs customer) from the authenticated
+account and files a Linear issue with the screenshot attached and the
+context block in the description.
+
+**The Signal schema as built:**
+```ts
+{
+  source: 'pm' | 'customer',   // re-derived server-side from req.user.is_pm
+  type: 'bug' | 'idea' | 'question' | 'other',
+  comment: string,
+  helpRequest?: string,        // optional "Get help" field (stubbed; see below)
+  context: {
+    userId, userName,          // stamped server-side from req.user
+    role,                      // 'pm' if is_pm else user.role
+    url, route,
+    appVersion,                // injected by Vite from package.json
+    viewport: { w, h },
+    userAgent,                 // server reads req.headers['user-agent']
+    timestamp                  // server stamps NOW()
+  },
+  media: { kind: 'image', url }[]  // populated server-side after Linear fileUpload
+}
+```
+
+**The adapter seam — `server/src/linear.js`:**
+The widget POSTs Signal payloads to a single endpoint (`POST /api/feedback`).
+The endpoint calls one function — `createSignalInLinear(signal, pngBuffer)` —
+which does fileUpload + PUT + issueCreate. Swapping to GitHub Issues or a
+local store later is a one-function change; widget and route never change.
+
+**Migration 022:** adds `users.is_pm BOOLEAN NOT NULL DEFAULT FALSE`. Kept
+separate from `is_admin` on purpose — admin is operational permission,
+PM is identity. Backfill sets `is_pm=TRUE` for bryan.hollingshead@gmail.com.
+
+**Files added:**
+- `server/migrations/022_is_pm.sql`
+- `server/src/linear.js` — adapter
+- `server/src/routes/feedback.js` — POST /api/feedback + stub POST /api/feedback/help
+- `client/src/components/FeedbackWidget.jsx` — floating button + sidebar + annotation canvas
+
+**Files touched:**
+- `server/src/routes/auth.js` + `server/src/middleware.js` — expose `is_pm` in req.user and useAuth().user
+- `server/src/index.js` — mount feedback router at /api/feedback
+- `server/.env.example` + `render.yaml` — declare LINEAR_API_KEY + team + 6 label IDs (with `sync: false` in render.yaml)
+- `client/vite.config.js` — inject `__APP_VERSION__` from package.json
+- `client/package.json` — `html-to-image@^1.11.13`
+- `client/src/App.jsx` — mount `<FeedbackWidget/>` once in each authed shell (tradesman + homeowner). Signed-out tree never renders the widget.
+
+**Stubs / out of scope, named so they don't get lost:**
+- **Video capture** — out of scope for v1. The upload path was designed so
+  media is an array (could carry future video URLs) — no schema change
+  needed when this lands.
+- **Get help (Agent Smith)** — `POST /api/feedback/help` returns
+  `{ disabled: true, message: '…not wired yet' }`. The sidebar's Get-help
+  field is rendered but submits are folded into the regular feedback issue
+  for now (helpRequest field on the Signal). Wire to a real
+  Claude-backed agent endpoint when one exists.
+- **Coordinate-based annotation overlays** — v2 nicety. v1 bakes marks
+  into the exported PNG so the screenshot Linear receives already shows
+  the marks.
+
+**What was verified locally:**
+- ✅ `npm run build` clean (no missing imports / syntax errors)
+- ✅ `grep` of the built bundle finds zero LINEAR_* / `linear.app/graphql` /
+  `fileUpload` / `issueCreate` — adapter stays server-side
+- ✅ `"0.1.0"` appears in the bundle (Vite injecting `__APP_VERSION__`)
+
+**What needs to happen before the end-to-end test in the prompt can run:**
+1. Apply migration 022 (auto via Render preDeployCommand).
+2. Set these env vars in Render dashboard (all `sync: false` in render.yaml):
+   `LINEAR_API_KEY`, `LINEAR_TEAM_ID`, `LINEAR_LABEL_PM`,
+   `LINEAR_LABEL_CUSTOMER`, `LINEAR_LABEL_BUG`, `LINEAR_LABEL_IDEA`,
+   `LINEAR_LABEL_QUESTION`, `LINEAR_LABEL_OTHER`.
+3. Submit one feedback from a PM account (bryan@gmail) and one from a
+   customer account. Confirm both arrive in the configured Linear team with
+   the correct labels, the screenshot attached, and the context block in
+   the description.
+
+**Open follow-ups:**
+- Add a way for the user to dismiss the floating button (some users won't
+  want it on every page) — local-storage flag + a "Hide" item in the
+  sidebar. Out of scope for v1.
+- Rate-limit the feedback endpoint — bored or buggy clients could mash the
+  button. Multer's 5 MB cap protects asset size; nothing protects against
+  10 issues/sec from one user. Add a small in-process throttle when load
+  warrants.
+- Smarter annotation toolbar — text-only callout, color picker, eraser.
+- Wire the help endpoint to a real Claude-backed agent (server/src/llm.js
+  already has the Anthropic client + key — the model and prompt design is
+  the work, not the integration).
+- Consider promoting Signal payloads to a first-class persistence layer
+  (Smith DB row + Linear sync) so PMs can search past feedback without
+  paginating Linear. Tracked under the Signal-layer direction.
 
 ### One account, two modes — intent fork + post-login mode toggle (2026-06-13)
 Phase 7. Closes the model question opened by phase 6: phase 6 created a

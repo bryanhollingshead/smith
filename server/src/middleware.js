@@ -42,7 +42,8 @@ export async function requireAuth(req, res, next) {
 
   // Confirm the user still exists. Cheap query, big safety win.
   const { rows } = await q(
-    `SELECT id, email, email_verified, first_name, last_name, onboarding_done
+    `SELECT id, email, email_verified, first_name, last_name, onboarding_done,
+            is_admin, is_pm
        FROM users WHERE id = $1`,
     [payload.sub]
   );
@@ -71,7 +72,8 @@ export async function optionalAuth(req, res, next) {
   try {
     const payload = verifyToken(token);
     const { rows } = await q(
-      `SELECT id, email, email_verified, first_name, last_name, onboarding_done
+      `SELECT id, email, email_verified, first_name, last_name, onboarding_done,
+              is_admin, is_pm
          FROM users WHERE id = $1`,
       [payload.sub]
     );

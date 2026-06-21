@@ -40,6 +40,7 @@ import hireMeRouter from './routes/hire-me.js';
 import homesRouter from './routes/homes.js';
 import adminUsersRouter from './routes/admin-users.js';
 import seoRouter from './routes/seo.js';
+import feedbackRouter from './routes/feedback.js';
 import { createSpaMeta } from './spa-meta.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -84,6 +85,7 @@ app.use('/api/public', publicRouter); // public profile + search + hire-me submi
 app.use('/api', hireMeRouter);        // /hire-me/inbox, /hire-me/:id  (phase 5, authed)
 app.use('/api', homesRouter);         // /places/autocomplete (public), /homes/* (authed)  (phase 6, homeowner entry)
 app.use('/api', adminUsersRouter);    // /admin/demo-users, /admin/users/:id/{impersonate,password}  (admin-only)
+app.use('/api/feedback', feedbackRouter); // Signal payloads → Linear (feedback widget)
 
 // SEO + AI-discoverability surface — mounted at root (not /api). These are
 // reachable by humans, crawlers, and LLM agents. Order matters: they must
