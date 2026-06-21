@@ -41,10 +41,13 @@ export function ForgotPasswordPage() {
       hero={{ title: 'Lost the password?', body: 'No tickets, no waiting. Reset yourself in two minutes.' }}
       footer={
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <a href="#/auth/signin" style={{
-            color: B.dim, fontSize: 14, fontWeight: 500,
-            padding: '10px 0', textDecoration: 'none',
-          }}>← Back to sign in</a>
+          <a
+            href="/auth/signin"
+            onClick={(e) => { e.preventDefault(); navigate('/auth/signin'); }}
+            style={{
+              color: B.dim, fontSize: 14, fontWeight: 500,
+              padding: '10px 0', textDecoration: 'none',
+            }}>← Back to sign in</a>
           <PrimaryButton disabled={!email || busy} onClick={submit}>
             Send reset link <Icon name="arrow-r" size={14} stroke={2.4}/>
           </PrimaryButton>
@@ -78,6 +81,7 @@ export function ForgotPasswordPage() {
 
 // ── Sent confirmation ───────────────────────────────────────────────────
 function ForgotPasswordSent({ email }) {
+  const { navigate } = useRouter();
   return (
     <AuthShell
       eyebrow="Reset your password"
@@ -87,9 +91,12 @@ function ForgotPasswordSent({ email }) {
       }
       hero={{ title: 'Almost back in.', body: 'Open the email and click the link to set a new password.' }}
       footer={
-        <a href="#/auth/signin" style={{
-          color: B.dim, fontSize: 14, fontWeight: 500, textDecoration: 'none',
-        }}>← Back to sign in</a>
+        <a
+          href="/auth/signin"
+          onClick={(e) => { e.preventDefault(); navigate('/auth/signin'); }}
+          style={{
+            color: B.dim, fontSize: 14, fontWeight: 500, textDecoration: 'none',
+          }}>← Back to sign in</a>
       }
     >
       <div style={{

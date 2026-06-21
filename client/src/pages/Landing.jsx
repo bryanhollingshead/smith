@@ -73,7 +73,11 @@ function LandingNav({ navigate }) {
         <a href="#how-it-works" style={navLinkStyle}>How it works</a>
         <a href="#for-trades"   style={navLinkStyle}>For trades</a>
         <a href="#for-gcs"      style={navLinkStyle}>For GCs</a>
-        <a href={`#${ROUTES.signin}`} style={navLinkStyle}>Sign in</a>
+        <a
+          href={ROUTES.signin}
+          onClick={(e) => { e.preventDefault(); navigate(ROUTES.signin); }}
+          style={navLinkStyle}
+        >Sign in</a>
         <button
           onClick={() => navigate(ROUTES.signup)}
           style={{

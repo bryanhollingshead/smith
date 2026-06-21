@@ -108,7 +108,11 @@ export function SignInPage() {
 
         <div style={{ paddingTop: 4, color: B.faint, fontSize: 12, fontStyle: 'italic' }}>
           Forgot it?{' '}
-          <a href="#/auth/forgot" style={{ color: B.accent, fontStyle: 'normal', fontWeight: 600, textDecoration: 'none' }}>
+          <a
+            href="/auth/forgot"
+            onClick={(e) => { e.preventDefault(); navigate('/auth/forgot'); }}
+            style={{ color: B.accent, fontStyle: 'normal', fontWeight: 600, textDecoration: 'none' }}
+          >
             Reset your password
           </a>
         </div>
