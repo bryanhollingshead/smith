@@ -48,6 +48,15 @@ export function ProfilePage({ userId }) {
 
   useEffect(() => { load(); }, [load]);
 
+  // Update the tab title once we know who this profile belongs to.
+  useEffect(() => {
+    if (!profile?.name) return;
+    const prev = document.title;
+    const tail = profile.headline ? ` — ${profile.headline}` : '';
+    document.title = `${profile.name}${tail} · Smith`;
+    return () => { document.title = prev; };
+  }, [profile?.name, profile?.headline]);
+
   return (
     <div style={{ background: B.bg, minHeight: '100vh' }}>
       <TopNav active="profile"/>

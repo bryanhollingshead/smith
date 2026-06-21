@@ -14,6 +14,7 @@ import { useRouter } from '../lib/router.jsx';
 
 // ── Header ──────────────────────────────────────────────────────────────
 export function ProfileHeader({ profile, isMe, onEdit, onConnect, onMessage }) {
+  const { navigate } = useRouter();
   // Cover: prefer a real uploaded cover photo (medium variant, fits well at
   // 220px header height). Fall back to the placeholder Photo render keyed
   // off cover_kind.
@@ -99,7 +100,7 @@ export function ProfileHeader({ profile, isMe, onEdit, onConnect, onMessage }) {
                       if (!canMessage) return;
                       try {
                         const { thread_id } = await api.post('/messages/threads', { peer_id: profile.id });
-                        window.location.hash = `#/messages/${thread_id}`;
+                        navigate(`/messages/${thread_id}`);
                         onMessage?.(thread_id);
                       } catch (e) {
                         alert(e.data?.error || 'Could not start message thread.');

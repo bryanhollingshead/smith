@@ -163,7 +163,7 @@ export async function sendInviteEmail(to, { inviterName, inviterHeadline, messag
 export async function sendResetEmail(to, token, clientOrigin) {
   // Normalize the origin: strip any trailing slash, ensure no path appended.
   const base = (clientOrigin || '').replace(/\/+$/, '');
-  const link = `${base}/#/auth/reset?token=${token}`;
+  const link = `${base}/auth/reset?token=${token}`;
   return sendMockEmail({
     to,
     subject: 'Reset your Smith password',

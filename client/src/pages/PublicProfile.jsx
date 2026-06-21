@@ -50,6 +50,14 @@ export function PublicProfilePage({ slug }) {
 
   useEffect(() => { load(); }, [load]);
 
+  useEffect(() => {
+    if (!profile?.name) return;
+    const prev = document.title;
+    const tail = profile.headline ? ` — ${profile.headline}` : '';
+    document.title = `${profile.name}${tail} · Smith`;
+    return () => { document.title = prev; };
+  }, [profile?.name, profile?.headline]);
+
   // Owner viewing their own public page from signed-in state — show a
   // little "edit" hint instead of Hire Me (you can't hire yourself).
   const isOwner = !!(user && profile && user.id === profile.id);

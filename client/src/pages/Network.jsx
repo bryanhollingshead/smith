@@ -175,6 +175,7 @@ function CoverBand({ urls, tone, height = 64 }) {
 }
 
 function ConnectionCard({ tab, card, onView, onChange }) {
+  const { navigate } = useRouter();
   const [busy, setBusy] = useState(false);
 
   const accept = async () => {
@@ -258,7 +259,7 @@ function ConnectionCard({ tab, card, onView, onChange }) {
                 onClick={async () => {
                   try {
                     const { thread_id } = await api.post('/messages/threads', { peer_id: card.id });
-                    window.location.hash = `#/messages/${thread_id}`;
+                    navigate(`/messages/${thread_id}`);
                   } catch (e) {
                     alert(e.data?.error || 'Could not start message thread.');
                   }

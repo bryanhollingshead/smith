@@ -1,66 +1,73 @@
-// Smith — Minimal hash-based router
-// Hash routing avoids needing server-side rewrites and keeps deps zero.
-// Routes look like #/feed, #/profile, #/profile/123, #/auth/signin, etc.
+// Smith — Minimal history-API router
 //
-// Clean-URL entry: the server SPA fallback serves index.html for any non-/api
-// path, and some shareable links (notably /profile/:slug from VisibilityCard)
-// are generated without a hash. When the app boots at such a URL we promote
-// the pathname into the hash so the rest of the routing tree just works.
+// Clean URLs (no #) so the server-side meta-tag injection in spa-meta.js
+// actually fires for /company/:slug and /profile/:slug — crawlers and AI
+// agents read what's in <head>, and the head differs per route only when the
+// path reaches the server. The SPA fallback in server/src/index.js sends
+// index.html for any non-/api path, and Vite's dev server does the same in
+// development, so history mode "just works" on both sides.
+//
+// Legacy magic links and bookmarks point to /#/<route> from when this app
+// used a hash router. On boot, we detect that shape and replaceState to the
+// clean path so existing URLs keep landing on the right screen without
+// triggering a double-fetch.
+//
+// navigate() uses pushState; popstate keeps the React state in sync with
+// browser back/forward.
 
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
 
 const RouterCtx = createContext({ path: '/', params: {}, navigate: () => {} });
 
-function parseHash() {
-  let raw = (window.location.hash || '').replace(/^#/, '');
-  // Clean-URL fallback: no hash, but the server served us at /something —
-  // treat the pathname as the route. Lets /profile/:slug (shared link)
-  // reach the slug-matching branches in App.jsx.
-  if (!raw && window.location.pathname && window.location.pathname !== '/') {
-    raw = window.location.pathname + (window.location.search || '');
-  }
-  raw = raw || '/';
-  const [path, qs] = raw.split('?');
+function parseLocation() {
+  const path = window.location.pathname || '/';
   const params = {};
-  if (qs) for (const kv of qs.split('&')) {
-    const [k, v] = kv.split('=');
-    if (k) params[decodeURIComponent(k)] = decodeURIComponent(v || '');
+  const search = window.location.search || '';
+  if (search.startsWith('?')) {
+    for (const kv of search.slice(1).split('&')) {
+      const [k, v] = kv.split('=');
+      if (k) params[decodeURIComponent(k)] = decodeURIComponent(v || '');
+    }
   }
-  return { path: path || '/', params };
+  return { path, params };
+}
+
+// One-shot migration: if the URL still uses the old #/<route> shape (from
+// existing magic links, old bookmarks, etc.), rewrite it cleanly so the rest
+// of the routing tree never has to think about hash routes.
+function migrateLegacyHashUrl() {
+  if (typeof window === 'undefined') return;
+  const hash = window.location.hash || '';
+  if (!hash.startsWith('#/')) return;
+  const target = hash.slice(1); // strip the #
+  const cleanUrl = target + (window.location.search || '');
+  window.history.replaceState(null, '', cleanUrl);
 }
 
 export function RouterProvider({ children }) {
   const [{ path, params }, setState] = useState(() => {
-    // Canonicalize a clean-URL entry to a hash route on boot. Without this,
-    // a visit to /profile/:slug followed by navigate('/feed') would leave
-    // the URL as /profile/:slug#/feed (hash changes, pathname doesn't).
-    if (typeof window !== 'undefined'
-        && !window.location.hash
-        && window.location.pathname
-        && window.location.pathname !== '/') {
-      const target = window.location.pathname + (window.location.search || '');
-      window.history.replaceState(null, '', '/#' + target);
-    }
-    return parseHash();
+    migrateLegacyHashUrl();
+    return parseLocation();
   });
 
   useEffect(() => {
-    const onHash = () => setState(parseHash());
-    window.addEventListener('hashchange', onHash);
-    return () => window.removeEventListener('hashchange', onHash);
+    const onPop = () => setState(parseLocation());
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
   }, []);
 
   const navigate = useCallback((to, opts = {}) => {
     if (typeof to !== 'string') return;
+    // Strip a leading hash if a caller still passes one — defensive against
+    // older call sites that haven't been migrated.
+    if (to.startsWith('#')) to = to.slice(1);
+    const target = to.startsWith('/') ? to : '/' + to;
     if (opts.replace) {
-      const url = `${window.location.pathname}#${to.startsWith('/') ? to : '/' + to}`;
-      window.history.replaceState(null, '', url);
-      // replaceState doesn't fire hashchange — manually sync.
-      setState(parseHash());
+      window.history.replaceState(null, '', target);
     } else {
-      window.location.hash = to.startsWith('/') ? to : '/' + to;
+      window.history.pushState(null, '', target);
     }
-    // Always scroll to top on navigation.
+    setState(parseLocation());
     window.scrollTo(0, 0);
   }, []);
 

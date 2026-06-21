@@ -359,7 +359,7 @@ router.post('/invites', requireAuth, async (req, res) => {
   const origin = (process.env.CLIENT_ORIGIN && process.env.CLIENT_ORIGIN !== '*')
     ? process.env.CLIENT_ORIGIN
     : 'http://localhost:5173';
-  const magicLink = `${origin.replace(/\/+$/, '')}/#/auth/signup?invite=${token}&email=${encodeURIComponent(email)}`;
+  const magicLink = `${origin.replace(/\/+$/, '')}/auth/signup?invite=${token}&email=${encodeURIComponent(email)}`;
 
   await sendInviteEmail(email, {
     inviterName,
@@ -412,7 +412,7 @@ router.post('/invites/:id/resend', requireAuth, async (req, res) => {
   const origin = (process.env.CLIENT_ORIGIN && process.env.CLIENT_ORIGIN !== '*')
     ? process.env.CLIENT_ORIGIN
     : 'http://localhost:5173';
-  const magicLink = `${origin.replace(/\/+$/, '')}/#/auth/signup?invite=${rows[0].token}&email=${encodeURIComponent(rows[0].email)}`;
+  const magicLink = `${origin.replace(/\/+$/, '')}/auth/signup?invite=${rows[0].token}&email=${encodeURIComponent(rows[0].email)}`;
   await sendInviteEmail(rows[0].email, {
     inviterName,
     inviterHeadline: rows[0].headline || null,

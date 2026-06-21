@@ -40,6 +40,16 @@ export function CompanyPage({ companyIdOrSlug }) {
 
   useEffect(() => { load(); }, [load]);
 
+  // Update the tab title once the company name lands. SSR meta injection
+  // covers cold loads and crawlers; this covers in-session SPA navigation.
+  useEffect(() => {
+    if (!data?.company?.name) return;
+    const prev = document.title;
+    const type = data.company.type ? ` — ${data.company.type}` : '';
+    document.title = `${data.company.name}${type} · Smith`;
+    return () => { document.title = prev; };
+  }, [data?.company?.name, data?.company?.type]);
+
   return (
     <div style={{ background: B.bg, minHeight: '100vh' }}>
       <TopNav/>
