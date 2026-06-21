@@ -13,14 +13,18 @@
 
 const LINEAR_GRAPHQL = 'https://api.linear.app/graphql';
 
+// Env reads trim defensively — a stray trailing newline or space on a paste
+// into the Render dashboard would otherwise produce an "invalid UUID" reject
+// from Linear that's almost impossible to spot by eye.
 function envOrThrow(name) {
-  const v = process.env[name];
+  const v = (process.env[name] || '').trim();
   if (!v) throw new Error(`Missing env var ${name}`);
   return v;
 }
 
 function envOrNull(name) {
-  return process.env[name] || null;
+  const v = (process.env[name] || '').trim();
+  return v || null;
 }
 
 async function linearGql(query, variables) {
@@ -35,11 +39,16 @@ async function linearGql(query, variables) {
   });
   if (!res.ok) {
     const text = await res.text().catch(() => '');
-    throw new Error(`Linear GraphQL ${res.status}: ${text.slice(0, 400)}`);
+    throw new Error(`Linear GraphQL ${res.status}: ${text.slice(0, 1000)}`);
   }
   const json = await res.json();
   if (json.errors?.length) {
-    throw new Error(`Linear GraphQL error: ${JSON.stringify(json.errors).slice(0, 400)}`);
+    // Log the full error structure to the console (Render logs) BEFORE
+    // throwing — the thrown message bubbles to the client truncated, but the
+    // server log keeps the detailed validationErrors that point at the
+    // actual bad field.
+    console.error('[linear] GraphQL errors:', JSON.stringify(json.errors, null, 2));
+    throw new Error(`Linear GraphQL error: ${JSON.stringify(json.errors).slice(0, 2000)}`);
   }
   return json.data;
 }
@@ -199,6 +208,15 @@ export async function createSignalInLinear(signal, pngBuffer) {
     assetUrl = up.assetUrl;
   }
 
+  const labelIds = labelIdsFor(signal);
+  const title = buildTitle(signal);
+  const description = buildDescription(signal, assetUrl);
+  // Log input shape (sans description body to keep the log readable) so
+  // when Linear's validation rejects something we can correlate the bad
+  // value with the env var it came from.
+  console.log('[linear] issueCreate input:', JSON.stringify({
+    teamId, title, labelIds, descriptionLen: description.length,
+  }));
   const data = await linearGql(
     `mutation IssueCreate($input: IssueCreateInput!) {
        issueCreate(input: $input) {
@@ -206,14 +224,7 @@ export async function createSignalInLinear(signal, pngBuffer) {
          issue { id identifier url title }
        }
      }`,
-    {
-      input: {
-        teamId,
-        title: buildTitle(signal),
-        description: buildDescription(signal, assetUrl),
-        labelIds: labelIdsFor(signal),
-      },
-    }
+    { input: { teamId, title, description, labelIds } }
   );
   if (!data.issueCreate?.success || !data.issueCreate.issue) {
     throw new Error('Linear issueCreate returned no issue');
