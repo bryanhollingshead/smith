@@ -14,6 +14,7 @@
 // undo never leaves a numbering hole.
 
 import React, { useEffect, useState, useRef, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import { B } from '../lib/theme.js';
 import { Icon } from './Icon.jsx';
 
@@ -237,11 +238,12 @@ export function AnnotateOverlay({ screenshot, initialMarks = [], onCancel, onDon
     };
   }, [selected, scale, marks]);
 
-  return (
+  return createPortal((
     <div style={{
       position: 'fixed', inset: 0, zIndex: 2000,
       background: 'rgba(20,12,8,0.92)',
       display: 'flex', flexDirection: 'column',
+      pointerEvents: 'auto',
     }} data-feedback-widget="true">
       <Toolbar
         tool={tool} setTool={setTool}
@@ -287,7 +289,7 @@ export function AnnotateOverlay({ screenshot, initialMarks = [], onCancel, onDon
         />
       )}
     </div>
-  );
+  ), document.body);
 }
 
 // ── Toolbar ───────────────────────────────────────────────────────────

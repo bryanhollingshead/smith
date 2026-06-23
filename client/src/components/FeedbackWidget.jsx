@@ -172,10 +172,11 @@ function FeedbackSidebar({ user, path, onClose }) {
         />
       )}
       <div
-        onClick={onClose}
+        onClick={annotating ? undefined : onClose}
         style={{
           position: 'absolute', inset: 0,
-          background: 'rgba(42,31,23,0.25)', pointerEvents: 'auto',
+          background: 'rgba(42,31,23,0.25)',
+          pointerEvents: annotating ? 'none' : 'auto',
         }}
       />
       <aside
