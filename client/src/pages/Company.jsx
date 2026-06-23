@@ -76,8 +76,13 @@ export function CompanyPage({ companyIdOrSlug }) {
 }
 
 function CompanyBody({ data, onChanged, navigate }) {
-  const { company, steward, is_steward, crew, trades, skills, signature_jobsite, recent_work } = data;
+  const { company, steward, is_steward, is_owner, owners = [], crew, trades, skills, signature_jobsite, recent_work } = data;
   const [editing, setEditing] = useState(false);
+
+  // Edit rights belong to current owners. Legacy stewards are honored as
+  // a fallback until the steward concept is retired — the server PATCH
+  // gate has the matching rule.
+  const canEdit = is_owner || is_steward;
 
   const stats = {
     crew: crew.length,
@@ -89,7 +94,7 @@ function CompanyBody({ data, onChanged, navigate }) {
     <>
       <CoverBand
         company={company}
-        editing={editing && is_steward}
+        editing={editing && canEdit}
         onChanged={onChanged}
       />
       <main style={pageMain}>
@@ -97,7 +102,7 @@ function CompanyBody({ data, onChanged, navigate }) {
           <Hero
             company={company}
             steward={steward}
-            isSteward={is_steward}
+            isSteward={canEdit}
             editing={editing}
             stats={stats}
             navigate={navigate}
@@ -120,10 +125,14 @@ function CompanyBody({ data, onChanged, navigate }) {
 
           <SignatureBlock
             signature={signature_jobsite}
-            editing={editing && is_steward}
+            editing={editing && canEdit}
             companyId={company.id}
             onChanged={onChanged}
           />
+
+          {owners.length > 0 && (
+            <OwnersSection owners={owners} navigate={navigate}/>
+          )}
 
           <CrewSection crew={crew} navigate={navigate}/>
 
@@ -137,7 +146,7 @@ function CompanyBody({ data, onChanged, navigate }) {
             <WorkGrid
               items={recent_work}
               companyName={company.name}
-              editing={editing && is_steward}
+              editing={editing && canEdit}
               companyId={company.id}
               currentSignatureId={signature_jobsite?.id}
               onChanged={onChanged}
@@ -692,6 +701,65 @@ function SignaturePhoto({ js }) {
     <div style={{ borderRadius: 4, overflow: 'hidden', border: `1px solid ${B.line}` }}>
       <Photo kind={js.photo_kind} label={js.title?.toLowerCase()} height={260}/>
     </div>
+  );
+}
+
+// ── Owners ────────────────────────────────────────────────────────────
+// Persistent humans who run the company. Distinct from Crew (which is
+// project-based / transient). Membership is derived from work_history
+// rows where is_owner = TRUE and is_current = TRUE — the user's own
+// self-assertion. The server is the gate; this just renders.
+function OwnersSection({ owners, navigate }) {
+  return (
+    <Section
+      title={owners.length === 1 ? 'Owner' : `Owners · ${owners.length}`}
+      subtitle="People who own and run this company."
+    >
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))',
+        gap: 10, marginTop: 12,
+      }}>
+        {owners.map(p => {
+          const dest = p.public_slug ? `/profile/${p.public_slug}` : `/profile/${p.id}`;
+          return (
+            <a
+              key={p.id}
+              href={`#${dest}`}
+              onClick={(e) => { e.preventDefault(); navigate(dest); }}
+              title={p.name}
+              style={{
+                ...crewCard,
+                border: `1px solid ${B.accent}`,
+                background: B.accentSoft,
+              }}
+            >
+              <SmithAvatar urls={p.avatar_urls} initials={p.initials} size={42} tone={p.avatar_tone || 'wood'}/>
+              <div style={{ flex: 1, minWidth: 0, textAlign: 'left' }}>
+                <div style={{
+                  display: 'inline-block', padding: '1px 6px', borderRadius: 2,
+                  background: B.accent, color: '#fff',
+                  fontSize: 9, fontWeight: 700, letterSpacing: '0.06em',
+                  textTransform: 'uppercase', marginBottom: 3,
+                }}>Owner</div>
+                <div className="serif" style={{
+                  color: B.text, fontWeight: 600, fontSize: 14, letterSpacing: '-0.01em',
+                }}>{p.name}</div>
+                <div style={{
+                  color: B.dim, fontSize: 12,
+                  whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                }}>
+                  {p.role}
+                </div>
+                <div style={{ color: B.faint, fontSize: 11, marginTop: 2 }}>
+                  {p.from_year}{p.is_current ? ' — present' : (p.to_year ? ` — ${p.to_year}` : '')}
+                </div>
+              </div>
+            </a>
+          );
+        })}
+      </div>
+    </Section>
   );
 }
 

@@ -76,7 +76,7 @@ export async function loadProfile(userId, viewerId) {
   );
   // Pull company.logo_url so the work-history card can render an uploaded logo.
   const workP = q(
-    `SELECT wh.id, wh.role, wh.from_year, wh.to_year, wh.is_current, wh.position,
+    `SELECT wh.id, wh.role, wh.from_year, wh.to_year, wh.is_current, wh.is_owner, wh.position,
             c.id as company_id, c.name as company_name, c.type as company_type,
             c.logo_tone as company_logo_tone,
             c.logo_url  as company_logo_url,

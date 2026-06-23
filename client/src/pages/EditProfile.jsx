@@ -895,6 +895,11 @@ function CompanyEditor({ co, onChanged, focusAddJobsite, featuredCount, featured
     onChanged?.();
   };
 
+  const toggleOwner = async () => {
+    await api.patch(`/work-history/${co.id}`, { is_owner: !co.is_owner });
+    onChanged?.();
+  };
+
   return (
     <div style={{
       background: B.bg, border: `1px solid ${B.line}`, borderRadius: 4,
@@ -928,6 +933,24 @@ function CompanyEditor({ co, onChanged, focusAddJobsite, featuredCount, featured
 
       {open && (
         <div style={{ padding: '0 18px 16px' }} className="fade-in">
+          {co.is_current && (
+            <label style={{
+              display: 'flex', alignItems: 'flex-start', gap: 8,
+              marginTop: 6, marginBottom: 12, padding: '8px 10px',
+              background: co.is_owner ? B.accentSoft : B.surface,
+              border: `1px solid ${co.is_owner ? B.accent : B.line}`,
+              borderRadius: 4, cursor: 'pointer',
+            }}>
+              <input type="checkbox" checked={!!co.is_owner} onChange={toggleOwner}
+                style={{ accentColor: B.accent, marginTop: 3 }}/>
+              <span style={{ color: B.text, fontSize: 12.5, lineHeight: 1.4 }}>
+                I own or co-own {co.company_name}
+                <div style={{ color: B.faint, fontSize: 11, marginTop: 2, fontStyle: 'italic' }}>
+                  Lists you as an owner on the company profile and unlocks profile edit rights.
+                </div>
+              </span>
+            </label>
+          )}
           <div style={{
             color: B.faint, fontSize: 11, fontStyle: 'italic',
             marginTop: 8, marginBottom: 8,
@@ -1065,6 +1088,7 @@ function AddCompanyForm({ onCancel, onAdded }) {
   const [fromYear, setFromYear] = useState('');
   const [toYear, setToYear] = useState('');
   const [current, setCurrent] = useState(true);
+  const [isOwner, setIsOwner] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
 
@@ -1169,6 +1193,7 @@ function AddCompanyForm({ onCancel, onAdded }) {
         from_year: fromYear.trim(),
         to_year: current ? null : toYear.trim() || null,
         is_current: current,
+        is_owner: current && isOwner,
       });
       onAdded?.();
     } catch (e) {
@@ -1380,6 +1405,21 @@ function AddCompanyForm({ onCancel, onAdded }) {
           style={{ accentColor: B.accent }}/>
         <span style={{ color: B.text, fontSize: 13 }}>I currently work here</span>
       </label>
+
+      {current && (
+        <label style={{
+          display: 'flex', alignItems: 'flex-start', gap: 8, marginTop: 8, cursor: 'pointer',
+        }}>
+          <input type="checkbox" checked={isOwner} onChange={e => setIsOwner(e.target.checked)}
+            style={{ accentColor: B.accent, marginTop: 3 }}/>
+          <span style={{ color: B.text, fontSize: 13, lineHeight: 1.4 }}>
+            I own or co-own this company
+            <div style={{ color: B.faint, fontSize: 11, marginTop: 2, fontStyle: 'italic' }}>
+              Asserting ownership lists you on the company profile as an owner and grants edit rights.
+            </div>
+          </span>
+        </label>
+      )}
 
       {error && <div style={{ color: B.danger, fontSize: 12, marginTop: 10 }}>{error}</div>}
 

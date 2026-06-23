@@ -487,11 +487,27 @@ router.get('/companies/:idOrSlug/profile', optionalAuth, async (req, res) => {
       WHERE c.id = $1`,
     [id]
   );
-  // Crew = anyone with a work_history row at this company. Tenure from
-  // work_history's from_year/to_year. One row per user (collapsing multiple
-  // tenures) keeps the crew list clean; we pick the latest by from_year.
-  // public_slug + is_public let the client and the SEO layer render canonical
-  // /profile/<slug> links when the crew member has opted into public surface.
+  // Owners = users with a current self-asserted owner tenure at this
+  // company. Source of truth for "who runs this company" and the gate for
+  // edit rights. One row per user; picks the latest is_current+is_owner
+  // tenure so role/tenure dates reflect the active ownership period.
+  const ownersP = q(
+    `SELECT DISTINCT ON (u.id)
+            u.id, u.first_name, u.last_name, u.avatar_tone, u.avatar_url, u.headline,
+            u.public_slug, u.is_public,
+            wh.role, wh.from_year, wh.to_year, wh.is_current
+       FROM work_history wh JOIN users u ON u.id = wh.user_id
+      WHERE wh.company_id = $1 AND wh.is_owner = TRUE AND wh.is_current = TRUE
+      ORDER BY u.id, wh.from_year DESC NULLS LAST, wh.id DESC`,
+    [id]
+  );
+  // Crew = anyone else with a work_history row at this company. Tenure
+  // from work_history's from_year/to_year. One row per user (collapsing
+  // multiple tenures) keeps the crew list clean; we pick the latest by
+  // from_year. Current owners are excluded so they only appear once, in
+  // the Owners section above. public_slug + is_public let the client and
+  // the SEO layer render canonical /profile/<slug> links when the crew
+  // member has opted into public surface.
   const crewP = q(
     `SELECT DISTINCT ON (u.id)
             u.id, u.first_name, u.last_name, u.avatar_tone, u.avatar_url, u.headline,
@@ -499,6 +515,10 @@ router.get('/companies/:idOrSlug/profile', optionalAuth, async (req, res) => {
             wh.role, wh.from_year, wh.to_year, wh.is_current
        FROM work_history wh JOIN users u ON u.id = wh.user_id
       WHERE wh.company_id = $1
+        AND u.id NOT IN (
+          SELECT user_id FROM work_history
+           WHERE company_id = $1 AND is_owner = TRUE AND is_current = TRUE
+        )
       ORDER BY u.id, wh.from_year DESC NULLS LAST, wh.id DESC`,
     [id]
   );
@@ -530,7 +550,7 @@ router.get('/companies/:idOrSlug/profile', optionalAuth, async (req, res) => {
     [id]
   );
 
-  const [co, crew, jobsites, trades, skills] = await Promise.all([coP, crewP, jobsitesP, tradesP, skillsP]);
+  const [co, owners, crew, jobsites, trades, skills] = await Promise.all([coP, ownersP, crewP, jobsitesP, tradesP, skillsP]);
   if (!co.rowCount) return res.status(404).json({ error: 'Company not found' });
   const c = co.rows[0];
 
@@ -605,6 +625,22 @@ router.get('/companies/:idOrSlug/profile', optionalAuth, async (req, res) => {
       avatar_tone: c.steward_avatar_tone,
     } : null,
     is_steward: !!req.userId && c.claimed_by === req.userId,
+    // is_owner: viewer has a current asserted-owner tenure here. This is
+    // the new edit-rights signal — clients should prefer it over is_steward.
+    is_owner: !!req.userId && owners.rows.some(o => o.id === req.userId),
+    owners: owners.rows.map(u => ({
+      id: u.id,
+      name: `${u.first_name || ''} ${u.last_name || ''}`.trim(),
+      initials: ((u.first_name?.[0] || '') + (u.last_name?.[0] || '')).toUpperCase(),
+      public_slug: u.is_public ? u.public_slug : null,
+      avatar_urls: parseUrls(u.avatar_url),
+      avatar_tone: u.avatar_tone,
+      headline: u.headline,
+      role: u.role,
+      from_year: u.from_year,
+      to_year: u.to_year,
+      is_current: u.is_current,
+    })),
     crew: crew.rows.map(u => ({
       id: u.id,
       name: `${u.first_name || ''} ${u.last_name || ''}`.trim(),
@@ -634,14 +670,27 @@ router.patch('/companies/:id', requireAuth, async (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (!Number.isFinite(id)) return res.status(400).json({ error: 'Invalid id' });
 
-  // Steward gate.
-  const own = await q(
-    `SELECT claimed_by FROM companies WHERE id = $1`,
-    [id]
+  // Owner gate. Edit rights belong to anyone with a current self-asserted
+  // owner tenure (work_history.is_owner=TRUE AND is_current=TRUE). The
+  // legacy claimed_by steward is honored as a fallback for companies that
+  // were claimed before the owner flow shipped — once owners are
+  // backfilled we'll drop the fallback and the steward concept entirely.
+  const gate = await q(
+    `SELECT c.claimed_by,
+            EXISTS (
+              SELECT 1 FROM work_history wh
+               WHERE wh.company_id = c.id
+                 AND wh.user_id = $2
+                 AND wh.is_owner = TRUE
+                 AND wh.is_current = TRUE
+            ) AS is_owner
+       FROM companies c WHERE c.id = $1`,
+    [id, req.userId]
   );
-  if (!own.rowCount) return res.status(404).json({ error: 'Company not found' });
-  if (own.rows[0].claimed_by !== req.userId) {
-    return res.status(403).json({ error: 'Only the steward can edit this company.' });
+  if (!gate.rowCount) return res.status(404).json({ error: 'Company not found' });
+  const { claimed_by, is_owner } = gate.rows[0];
+  if (!is_owner && claimed_by !== req.userId) {
+    return res.status(403).json({ error: 'Only a current owner can edit this company.' });
   }
 
   const body = req.body || {};
@@ -771,9 +820,13 @@ router.patch('/companies/:id', requireAuth, async (req, res) => {
 // ────────────────────────────────────────────────────────────────────────────
 
 // POST /api/work-history
-// Body: { company_id, role, from_year, to_year?, is_current?, jobsites?: [{title,kind,location,duration,photo_kind}] }
+// Body: { company_id, role, from_year, to_year?, is_current?, is_owner?, jobsites?: [{title,kind,location,duration,photo_kind}] }
+//
+// is_owner = TRUE is the user's self-asserted claim to ownership of this
+// company. Combined with is_current = TRUE it grants edit rights on the
+// company profile via the PATCH /api/companies/:id gate.
 router.post('/work-history', requireAuth, async (req, res) => {
-  const { company_id, role, from_year, to_year, is_current, jobsites = [] } = req.body || {};
+  const { company_id, role, from_year, to_year, is_current, is_owner, jobsites = [] } = req.body || {};
   if (!company_id || !role || !from_year)
     return res.status(400).json({ error: 'company_id, role, from_year required' });
 
@@ -783,10 +836,10 @@ router.post('/work-history', requireAuth, async (req, res) => {
       [req.userId]
     );
     const { rows } = await c.query(
-      `INSERT INTO work_history (user_id, company_id, role, from_year, to_year, is_current, position)
-         VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id`,
+      `INSERT INTO work_history (user_id, company_id, role, from_year, to_year, is_current, is_owner, position)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
       [req.userId, company_id, role, String(from_year), to_year ? String(to_year) : null,
-       !!is_current, pos[0].next]
+       !!is_current, !!is_owner, pos[0].next]
     );
     const whId = rows[0].id;
     for (let i = 0; i < jobsites.length; i++) {
@@ -812,6 +865,49 @@ router.delete('/work-history/:id', requireAuth, async (req, res) => {
   const r = await q(
     `DELETE FROM work_history WHERE id = $1 AND user_id = $2`,
     [id, req.userId]
+  );
+  if (!r.rowCount) return res.status(404).json({ error: 'Not found' });
+  res.json({ ok: true });
+});
+
+// PATCH /api/work-history/:id
+// Body: any of { role, from_year, to_year, is_current, is_owner }
+//
+// Lets a user amend their own tenure without deleting and re-adding.
+// is_owner toggle is the entry point for claiming admin rights on the
+// company without going through the legacy steward claim flow.
+router.patch('/work-history/:id', requireAuth, async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'Invalid id' });
+
+  const body = req.body || {};
+  const sets = [];
+  const params = [];
+  const push = (col, val) => { params.push(val); sets.push(`${col} = $${params.length}`); };
+
+  if ('role' in body) {
+    const v = String(body.role || '').trim();
+    if (!v) return res.status(400).json({ error: 'role cannot be empty' });
+    push('role', v);
+  }
+  if ('from_year' in body) {
+    const v = String(body.from_year || '').trim();
+    if (!v) return res.status(400).json({ error: 'from_year cannot be empty' });
+    push('from_year', v);
+  }
+  if ('to_year' in body) {
+    push('to_year', body.to_year ? String(body.to_year) : null);
+  }
+  if ('is_current' in body) push('is_current', !!body.is_current);
+  if ('is_owner' in body)   push('is_owner',   !!body.is_owner);
+
+  if (!sets.length) return res.status(400).json({ error: 'No fields to update' });
+
+  params.push(id, req.userId);
+  const r = await q(
+    `UPDATE work_history SET ${sets.join(', ')}
+       WHERE id = $${params.length - 1} AND user_id = $${params.length}`,
+    params
   );
   if (!r.rowCount) return res.status(404).json({ error: 'Not found' });
   res.json({ ok: true });

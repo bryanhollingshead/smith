@@ -140,21 +140,27 @@ router.delete('/cover', requireAuth, async (req, res) => {
 
 async function checkCompanyAuth(companyId, userId) {
   const { rows } = await q(
-    `SELECT id, claimed_by, created_by, logo_url
-       FROM companies WHERE id = $1`,
-    [companyId]
+    `SELECT c.id, c.claimed_by, c.created_by, c.logo_url,
+            EXISTS (
+              SELECT 1 FROM work_history wh
+               WHERE wh.company_id = c.id
+                 AND wh.user_id = $2
+                 AND wh.is_owner = TRUE
+                 AND wh.is_current = TRUE
+            ) AS is_owner
+       FROM companies c WHERE c.id = $1`,
+    [companyId, userId]
   );
   if (!rows.length) return { ok: false, status: 404, error: 'Company not found.' };
   const co = rows[0];
-  // If claimed, only the claimer can change the logo.
-  if (co.claimed_by && co.claimed_by !== userId) {
-    return { ok: false, status: 403, error: 'Not authorized to edit this company logo.' };
-  }
-  // If unclaimed, the original creator can manage it.
-  if (!co.claimed_by && co.created_by !== userId) {
-    return { ok: false, status: 403, error: 'Not authorized to edit this company logo.' };
-  }
-  return { ok: true, company: co };
+  // Current asserted owners can manage the logo.
+  if (co.is_owner) return { ok: true, company: co };
+  // Legacy steward fallback (drops once owners are backfilled).
+  if (co.claimed_by && co.claimed_by === userId) return { ok: true, company: co };
+  // Unclaimed companies: original creator can still attach a logo on day 1
+  // so the add-company flow keeps working before anyone asserts ownership.
+  if (!co.claimed_by && co.created_by === userId) return { ok: true, company: co };
+  return { ok: false, status: 403, error: 'Not authorized to edit this company logo.' };
 }
 
 router.post('/company/:id/logo', requireAuth, withUpload, async (req, res) => {
