@@ -93,8 +93,8 @@ export function SeedDashboardPage({ id }) {
   const proTone = pro?.avatar_tone || 'brick';
   const isFromHireMe = home.entry_source === 'hire-me' && !!home.pending_pro_slug;
   const startProjectHref = isFromHireMe
-    ? `/todo/describe-work?pro=${encodeURIComponent(home.pending_pro_slug)}&home=${home.id}`
-    : `/todo/describe-work?home=${home.id}`;
+    ? `/project/new?home=${home.id}&pro=${encodeURIComponent(home.pending_pro_slug)}`
+    : `/project/new?home=${home.id}`;
 
   // Just the seed-home content — the shell (ProjectShell rail + nav +
   // mode toggle) is provided by HomeownerShell. Returning a fragment
@@ -214,7 +214,6 @@ export function SeedDashboardPage({ id }) {
                   </div>
                 </div>
               </div>
-              {/* TODO: describe-the-work flow (separate handoff) */}
               <button
                 onClick={() => navigate(startProjectHref)}
                 style={{

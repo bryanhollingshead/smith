@@ -38,6 +38,7 @@ import applicationsRouter from './routes/applications.js';
 import publicRouter from './routes/public.js';
 import hireMeRouter from './routes/hire-me.js';
 import homesRouter from './routes/homes.js';
+import projectsRouter from './routes/projects.js';
 import adminUsersRouter from './routes/admin-users.js';
 import seoRouter from './routes/seo.js';
 import feedbackRouter from './routes/feedback.js';
@@ -84,6 +85,7 @@ app.use('/api', applicationsRouter);  // /jobs/:id/draft, /applications/*  (phas
 app.use('/api/public', publicRouter); // public profile + search + hire-me submit + magic-link reply (phase 5)
 app.use('/api', hireMeRouter);        // /hire-me/inbox, /hire-me/:id  (phase 5, authed)
 app.use('/api', homesRouter);         // /places/autocomplete (public), /homes/* (authed)  (phase 6, homeowner entry)
+app.use('/api', projectsRouter);      // /projects/* (authed, homeowner spec flow)
 app.use('/api', adminUsersRouter);    // /admin/demo-users, /admin/users/:id/{impersonate,password}  (admin-only)
 app.use('/api/feedback', feedbackRouter); // Signal payloads → Linear (feedback widget)
 
