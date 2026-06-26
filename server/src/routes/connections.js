@@ -55,9 +55,11 @@ const CARD_SQL = `
   SELECT u.id, u.first_name, u.last_name, u.headline, u.location, u.avatar_tone,
          u.avatar_url, u.cover_url, u.is_smith_god,
          (SELECT c.name FROM work_history w JOIN companies c ON c.id = w.company_id
-            WHERE w.user_id = u.id ORDER BY w.position ASC LIMIT 1) AS company_name,
+            WHERE w.user_id = u.id
+            ORDER BY w.is_current DESC, w.from_year DESC, w.id DESC LIMIT 1) AS company_name,
          (SELECT w.role FROM work_history w
-            WHERE w.user_id = u.id ORDER BY w.position ASC LIMIT 1) AS current_role
+            WHERE w.user_id = u.id
+            ORDER BY w.is_current DESC, w.from_year DESC, w.id DESC LIMIT 1) AS current_role
 `;
 
 // Mutual count = users connected to both viewer and target.

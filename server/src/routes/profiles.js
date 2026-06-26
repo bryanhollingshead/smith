@@ -83,7 +83,7 @@ export async function loadProfile(userId, viewerId) {
             c.claimed_by IS NOT NULL as company_claimed
        FROM work_history wh JOIN companies c ON c.id = wh.company_id
       WHERE wh.user_id = $1
-      ORDER BY wh.position ASC, wh.id DESC`,
+      ORDER BY wh.is_current DESC, wh.from_year DESC, wh.id DESC`,
     [userId]
   );
   // Include jobsite.photo_url so cards can render the primary photo, plus the
@@ -256,7 +256,13 @@ export async function loadProfile(userId, viewerId) {
         has_doc: !!l.doc_url && (isOwner || l.share_public),
       };
     }),
-    work_history: [...workById.values()].sort((a, b) => a.position - b.position),
+    work_history: [...workById.values()].sort((a, b) => {
+      if (a.is_current !== b.is_current) return a.is_current ? -1 : 1;
+      const ay = String(a.from_year || '');
+      const by = String(b.from_year || '');
+      if (ay !== by) return by.localeCompare(ay);
+      return b.id - a.id;
+    }),
     skills: skills.rows,
     network_size: networkSize.rows[0].n,
     connection,
