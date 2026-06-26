@@ -16,21 +16,50 @@ import { useAuth } from '../lib/AuthContext.jsx';
 import { api } from '../lib/api.js';
 import { SeedDashboardPage } from '../pages/SeedDashboard.jsx';
 
-// Stub pages for homeowner-mode nav destinations that haven't been built
-// yet. Each links back to the journal's "next handoff" framing so the
-// reader knows this is intentional, not lost.
-function HomeownerStub({ title, blurb }) {
+// Empty state for the Projects page when the user hasn't started one yet.
+// CTA routes to the same describe-the-work flow the seed dashboard surfaces.
+function ProjectsEmpty({ home, navigate }) {
+  const isFromHireMe = !!(home && home.entry_source === 'hire-me' && home.pending_pro_slug);
+  const startHref = home
+    ? (isFromHireMe
+        ? `/todo/describe-work?pro=${encodeURIComponent(home.pending_pro_slug)}&home=${home.id}`
+        : `/todo/describe-work?home=${home.id}`)
+    : null;
+  return (
+    <div style={{ padding: '48px 32px', maxWidth: 640 }}>
+      <h1 className="serif" style={{
+        margin: 0, fontSize: 28, fontWeight: 600, letterSpacing: '-0.02em', color: B.text,
+      }}>No projects yet.</h1>
+      <p style={{ color: B.dim, fontSize: 15, lineHeight: 1.6, marginTop: 14 }}>
+        Every project at this address — scope, bids, decisions, photos — lives
+        here once you start one. They follow the house.
+      </p>
+      {startHref && (
+        <button
+          onClick={() => navigate(startHref)}
+          style={{
+            marginTop: 24,
+            background: B.text, color: B.surface, border: 'none',
+            padding: '12px 22px', borderRadius: 100,
+            fontSize: 14, fontWeight: 600, cursor: 'pointer',
+            display: 'inline-flex', alignItems: 'center', gap: 8,
+          }}>
+          Start a project →
+        </button>
+      )}
+    </div>
+  );
+}
+
+// Fallback for routes that don't exist in homeowner mode.
+function HomeownerLost({ path }) {
   return (
     <div style={{ padding: '48px 32px', maxWidth: 720 }}>
       <h1 className="serif" style={{
         margin: 0, fontSize: 28, fontWeight: 600, letterSpacing: '-0.02em', color: B.text,
-      }}>{title}</h1>
+      }}>Lost your hammer.</h1>
       <p style={{ color: B.dim, fontSize: 15, lineHeight: 1.55, marginTop: 12 }}>
-        {blurb}
-      </p>
-      <p style={{ color: B.faint, fontSize: 13, fontStyle: 'italic', marginTop: 28 }}>
-        Coming in the next handoff. The shell + mode toggle ship now so the
-        homeowner side has a real seat at the table.
+        We can't find <span className="mono">#{path}</span> in homeowner mode.
       </p>
     </div>
   );
@@ -63,10 +92,7 @@ export function HomeownerShell() {
   // Active nav-key derived from the route. Homeowner mode has its own
   // small set of destinations; everything else routes to /home/:id.
   const navKey =
-    path === '/find-pros' ? 'find-pros' :
     path === '/projects' ? 'projects' :
-    path === '/inquiries-sent' ? 'inquiries' :
-    path === '/saved-pros' ? 'saved' :
     'home';
 
   // Body content for the current route. The shell wraps everything; the
@@ -75,22 +101,8 @@ export function HomeownerShell() {
   const homeMatch = match('/home/:id', path);
   if (homeMatch) {
     body = <SeedDashboardPage id={homeMatch.id}/>;
-  } else if (navKey === 'find-pros') {
-    body = <HomeownerStub
-      title="Find a pro"
-      blurb="Search and shortlist trusted tradesmen by trade, location, and the work they've actually done. The same network the trades use to connect — opened up for homeowners."/>;
   } else if (navKey === 'projects') {
-    body = <HomeownerStub
-      title="My projects"
-      blurb="Every project at your home or property in one place — scope, bids, decisions, photos, the works. Project initiation lands with the next handoff."/>;
-  } else if (navKey === 'inquiries') {
-    body = <HomeownerStub
-      title="Inquiries sent"
-      blurb="Track every Hire Me you've sent — who's read it, who's replied, what stage you're at. Magic-link replies feed back here."/>;
-  } else if (navKey === 'saved') {
-    body = <HomeownerStub
-      title="Saved tradesmen"
-      blurb="The pros you've shortlisted, organized by trade. Add notes, jump back to any profile, send a follow-up inquiry in one click."/>;
+    body = <ProjectsEmpty home={home} navigate={navigate}/>;
   } else if (path === '/' || path === '/feed') {
     // Tradesman default route in homeowner mode → redirect to seed dashboard.
     if (loading) {
@@ -105,9 +117,7 @@ export function HomeownerShell() {
       body = <Loading/>;
     }
   } else {
-    body = <HomeownerStub
-      title="Lost your hammer."
-      blurb={`We can't find #${path} in homeowner mode.`}/>;
+    body = <HomeownerLost path={path}/>;
   }
 
   return (
@@ -125,18 +135,9 @@ export function HomeownerShell() {
         { k: 'home',       label: 'My home',         icon: 'home',
           onClick: () => home && navigate(`/home/${home.id}`),
           sub: home ? `${home.city}, ${home.state}` : 'Setting up…' },
-        { k: 'find-pros',  label: 'Find a pro',      icon: 'search',
-          onClick: () => navigate('/find-pros'),
-          sub: 'Search the network' },
-        { k: 'projects',   label: 'My projects',     icon: 'briefcase',
+        { k: 'projects',   label: 'Projects',        icon: 'briefcase',
           onClick: () => navigate('/projects'),
-          sub: 'Coming soon' },
-        { k: 'inquiries',  label: 'Inquiries sent',  icon: 'send',
-          onClick: () => navigate('/inquiries-sent'),
-          sub: 'Coming soon' },
-        { k: 'saved',      label: 'Saved tradesmen', icon: 'star',
-          onClick: () => navigate('/saved-pros'),
-          sub: 'Coming soon' },
+          sub: 'Start one here' },
       ]}>
       {body}
     </ProjectShell>

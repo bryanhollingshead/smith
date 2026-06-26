@@ -1,78 +1,17 @@
-// Smith — Seed dashboard (homeowner-acquisition step 4)
+// Smith — Seed dashboard (homeowner home page)
 //
-// Route: /home/:id — authed. The "day one" home profile: sparse real data
-// from the records pull, a setup-progress bar derived from filled fields,
-// a checklist of next steps, locked future modules as carrots, and a
-// right-column "Marcus is ready" card iff the entry path was hire-me.
-//
-// "Describe the work →" and the locked-module unlock CTAs intentionally
-// route to /todo/* placeholders — they're the next handoff's flows.
+// Route: /home/:id — authed. The home's permanent landing page. Orients the
+// user around "everything about this house lives here forever" and points
+// them at their first project. If they arrived via hire-me, the right rail
+// surfaces the pending pro and the describe-the-work entry.
 
 import React, { useEffect, useState } from 'react';
 import { B } from '../lib/theme.js';
 import { Icon } from '../components/Icon.jsx';
 import { Avatar, Photo } from '../components/Primitives.jsx';
 import { StreetView } from '../components/StreetView.jsx';
-import { LockedModule } from '../components/HomeownerEntry.jsx';
 import { useRouter } from '../lib/router.jsx';
 import { api } from '../lib/api.js';
-
-// Derive a human checklist from the home row. Two rows can be completed
-// programmatically today; the other four are stubs that route to TODO
-// flows when ticked. Mirrors the design's row order exactly.
-function buildChecklist(home) {
-  const hasBasic = !!(
-    home.year_built || home.square_feet ||
-    home.bedrooms || home.bathrooms ||
-    home.lot_acres || home.stories ||
-    home.last_sold_date || home.last_sold_price ||
-    home.roof_material || home.heating
-  );
-  return [
-    {
-      key: 'confirm',
-      done: !!home.confirmed_at,
-      t: 'Confirm your address',
-      s: 'Pulled from public records',
-      pts: '',
-    },
-    {
-      key: 'basic',
-      done: hasBasic,
-      t: 'Basic facts auto-imported',
-      s: 'Year, sqft, beds, baths',
-      pts: '',
-    },
-    {
-      key: 'systems', done: false, hot: true,
-      t: 'Add your systems',
-      s: 'Electrical, plumbing, HVAC, roof age',
-      pts: 'Unlocks maintenance',
-      go: '/todo/add-systems',
-    },
-    {
-      key: 'project', done: false,
-      t: 'Log a past project',
-      s: "Even a rough one — builds your value model",
-      pts: 'Unlocks value & equity',
-      go: '/todo/log-project',
-    },
-    {
-      key: 'photos', done: false,
-      t: 'Upload a few photos',
-      s: 'Rooms, exterior, anything behind walls',
-      pts: 'Unlocks photo vault',
-      go: '/todo/upload-photos',
-    },
-    {
-      key: 'trade', done: false,
-      t: 'Connect a trade you trust',
-      s: 'The pros who already know your house',
-      pts: 'Unlocks fast bidding',
-      go: '/todo/connect-trade',
-    },
-  ];
-}
 
 function formatPrice(n) {
   if (!n) return '';
@@ -149,12 +88,13 @@ export function SeedDashboardPage({ id }) {
     );
   }
 
-  const checklist = buildChecklist(home);
   const proName = pro ? pro.first_name || pro.name : 'Your pro';
   const proInitials = pro?.initials || '··';
   const proTone = pro?.avatar_tone || 'brick';
   const isFromHireMe = home.entry_source === 'hire-me' && !!home.pending_pro_slug;
-  const detailsRemainingForUnlock = Math.max(0, 7 - home.progress.added); // arbitrary "next milestone"
+  const startProjectHref = isFromHireMe
+    ? `/todo/describe-work?pro=${encodeURIComponent(home.pending_pro_slug)}&home=${home.id}`
+    : `/todo/describe-work?home=${home.id}`;
 
   // Just the seed-home content — the shell (ProjectShell rail + nav +
   // mode toggle) is provided by HomeownerShell. Returning a fragment
@@ -195,14 +135,6 @@ export function SeedDashboardPage({ id }) {
           </div>
         )}
         <div style={{ position: 'absolute', left: 32, right: 32, bottom: 22 }}>
-          <div style={{
-            display: 'inline-flex', alignItems: 'center', gap: 8,
-            background: 'rgba(255,255,255,0.18)', backdropFilter: 'blur(8px)',
-            color: '#fff', padding: '5px 11px', borderRadius: 100,
-            fontSize: 11, fontWeight: 600, letterSpacing: '0.04em', marginBottom: 12,
-          }}>
-            <Icon name="check" size={11} stroke={3}/> HOME PROFILE STARTED
-          </div>
           <h1 className="serif" style={{
             margin: 0, fontSize: 36, fontWeight: 600, color: '#fff', letterSpacing: '-0.025em',
           }}>{home.address_line1}</h1>
@@ -212,139 +144,52 @@ export function SeedDashboardPage({ id }) {
         </div>
       </div>
 
-      {/* Progress band */}
-      <div style={{
-        background: B.surface, borderBottom: `1px solid ${B.line}`,
-        padding: '18px 32px', display: 'flex', alignItems: 'center', gap: 22,
-      }}>
-        <div style={{ flex: 1 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 7 }}>
-            <span className="serif" style={{ color: B.text, fontSize: 15, fontWeight: 600 }}>
-              Your home profile is {home.progress.pct}% complete
-            </span>
-            <span style={{ color: B.dim, fontSize: 12.5, fontStyle: 'italic' }}>
-              {home.progress.added} of {home.progress.total} details added
-            </span>
-          </div>
-          <div style={{
-            height: 7, background: B.bg, borderRadius: 4, overflow: 'hidden',
-          }}>
-            <div style={{
-              width: `${home.progress.pct}%`, height: '100%', background: B.accent,
-              transition: 'width 220ms ease',
-            }}/>
-          </div>
-        </div>
-        <button
-          onClick={() => navigate('/todo/add-systems')}
-          style={{
-            background: B.accent, color: '#fff', border: 'none',
-            padding: '11px 18px', borderRadius: 100,
-            fontSize: 13, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap',
-          }}>
-          Add {detailsRemainingForUnlock} details → unlock value
-        </button>
-      </div>
-
       {/* Body grid */}
       <div style={{
         padding: '24px 32px', display: 'grid',
         gridTemplateColumns: '1fr 360px', gap: 20, alignItems: 'flex-start',
       }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          {/* Checklist */}
           <section style={{
             background: B.surface, border: `1px solid ${B.line}`,
-            borderRadius: 8, padding: '22px 26px',
+            borderRadius: 8, padding: '32px 36px',
           }}>
             <h2 className="serif" style={{
-              margin: '0 0 4px', fontSize: 20, fontWeight: 600,
-              color: B.text, letterSpacing: '-0.01em',
-            }}>Build out your home</h2>
+              margin: '0 0 14px', fontSize: 26, fontWeight: 600,
+              color: B.text, letterSpacing: '-0.015em', lineHeight: 1.15,
+            }}>Welcome to your home file.</h2>
             <p style={{
-              color: B.dim, fontSize: 12.5, fontStyle: 'italic', margin: '0 0 18px',
-            }}>Each step unlocks more of your dashboard. Do them in any order, anytime.</p>
-            {checklist.map((step, i) => (
-              <div key={step.key} style={{
-                display: 'flex', alignItems: 'flex-start', gap: 14,
-                padding: '12px 0', borderTop: i ? `1px dashed ${B.line}` : 'none',
+              color: B.text, fontSize: 15, lineHeight: 1.6, margin: '0 0 14px',
+            }}>
+              Everything that happens to this house — projects, scope, who did the work,
+              photos behind the walls, what it cost — gets recorded here and stays with
+              the address.
+            </p>
+            <p style={{
+              color: B.text, fontSize: 15, lineHeight: 1.6, margin: '0 0 22px',
+            }}>
+              The next pro you hire walks in already knowing what's there.
+            </p>
+            {isFromHireMe ? (
+              <p style={{
+                color: B.dim, fontSize: 13.5, fontStyle: 'italic', margin: 0,
+                display: 'inline-flex', alignItems: 'center', gap: 6,
               }}>
-                <div style={{
-                  width: 22, height: 22, borderRadius: '50%',
-                  background: step.done ? B.accent : 'transparent',
-                  border: `1.5px solid ${step.done ? B.accent : B.line}`,
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  flexShrink: 0, marginTop: 1,
+                Start with {proName}, on the right. <Icon name="arrow-r" size={13} stroke={2}/>
+              </p>
+            ) : (
+              <button
+                onClick={() => navigate(startProjectHref)}
+                style={{
+                  background: B.text, color: B.surface, border: 'none',
+                  padding: '12px 22px', borderRadius: 100,
+                  fontSize: 14, fontWeight: 600, cursor: 'pointer',
+                  display: 'inline-flex', alignItems: 'center', gap: 8,
                 }}>
-                  {step.done && <Icon name="check" size={12} stroke={3} style={{ color: '#fff' }}/>}
-                </div>
-                <div style={{ flex: 1 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <span className="serif" style={{
-                      color: B.text, fontSize: 14.5, fontWeight: 600,
-                      letterSpacing: '-0.01em',
-                      textDecoration: step.done ? 'line-through' : 'none',
-                      opacity: step.done ? 0.55 : 1,
-                    }}>{step.t}</span>
-                    {step.hot && (
-                      <span style={{
-                        fontSize: 9, fontWeight: 700, letterSpacing: '0.06em',
-                        color: B.accent, background: B.accentSoft,
-                        padding: '2px 6px', borderRadius: 2,
-                      }}>DO NEXT</span>
-                    )}
-                  </div>
-                  <div style={{ color: B.dim, fontSize: 12, fontStyle: 'italic', marginTop: 1 }}>
-                    {step.s}
-                  </div>
-                </div>
-                {step.pts && !step.done && (
-                  <button
-                    onClick={() => step.go && navigate(step.go)}
-                    style={{
-                      color: B.accent, fontSize: 11, fontWeight: 600, fontStyle: 'italic',
-                      whiteSpace: 'nowrap', marginTop: 2,
-                      background: 'transparent', border: 'none', cursor: 'pointer', padding: 0,
-                    }}>{step.pts}</button>
-                )}
-              </div>
-            ))}
+                Start your first project <Icon name="arrow-r" size={14} stroke={2.4}/>
+              </button>
+            )}
           </section>
-
-          {/* Locked future modules */}
-          <div>
-            <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 12 }}>
-              <h2 className="serif" style={{
-                margin: 0, fontSize: 18, fontWeight: 600,
-                color: B.text, letterSpacing: '-0.01em',
-              }}>What you'll unlock</h2>
-              <span style={{ color: B.faint, fontSize: 12, fontStyle: 'italic' }}>
-                · a glimpse of where this goes
-              </span>
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-              <LockedModule
-                kind="kitchen" title="Value & equity"
-                blurb="Live home value, equity, and pre-qualified credit to fund projects."
-                unlock="Log a project to unlock"
-                onUnlock={() => navigate('/todo/log-project')}/>
-              <LockedModule
-                kind="detail" title="Behind the walls"
-                blurb="Every photo your trades take before drywall — pinned to your floor plan."
-                unlock="Add photos to unlock"
-                onUnlock={() => navigate('/todo/upload-photos')}/>
-              <LockedModule
-                kind="workshop" title="Smart maintenance"
-                blurb="Material-aware care schedule tuned to what's actually in your home."
-                unlock="Add systems to unlock"
-                onUnlock={() => navigate('/todo/add-systems')}/>
-              <LockedModule
-                kind="concrete" title="Instant bidding"
-                blurb="Fast, accurate estimates from pros — because your spec writes itself."
-                unlock="Connect a trade to unlock"
-                onUnlock={() => navigate('/todo/connect-trade')}/>
-            </div>
-          </div>
         </div>
 
         {/* Right column */}
@@ -371,7 +216,7 @@ export function SeedDashboardPage({ id }) {
               </div>
               {/* TODO: describe-the-work flow (separate handoff) */}
               <button
-                onClick={() => navigate(`/todo/describe-work?pro=${encodeURIComponent(home.pending_pro_slug)}&home=${home.id}`)}
+                onClick={() => navigate(startProjectHref)}
                 style={{
                   width: '100%', marginTop: 14, background: B.text, color: B.surface,
                   border: 'none', padding: '11px', borderRadius: 100,
