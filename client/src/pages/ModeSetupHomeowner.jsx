@@ -29,9 +29,12 @@ export function ModeSetupHomeownerPage() {
   const { refresh, switchMode } = useAuth();
 
   // Pre-fill from URL — when present, the caller already typed an address
-  // (typically the resume-after-signin path from /auth/homeowner).
+  // (typically the resume-after-signin path from /auth/homeowner, or a
+  // signed-in user coming from the hire-me entry flow).
   const incomingAddress   = params.address || '';
   const incomingHiringIn  = params.hiring_context === 'property_manager' ? 'property_manager' : 'own_home';
+  const incomingEntry     = params.entry_source === 'hire-me' ? 'hire-me' : 'self-serve';
+  const incomingProSlug   = params.pro || null;
   const hasPrefill        = !!incomingAddress;
 
   const [addressText, setAddressText] = useState(incomingAddress);
@@ -49,7 +52,8 @@ export function ModeSetupHomeownerPage() {
       await api.patch('/profiles/me', { hiring_context: hiringContext });
       const { home } = await api.post('/homes', {
         address: addressText.trim(),
-        entry_source: 'self-serve',
+        entry_source: incomingEntry,
+        pending_pro_slug: incomingEntry === 'hire-me' ? incomingProSlug : null,
       });
       // Idempotently flip the persisted mode to homeowner. If the user was
       // already in homeowner mode (case a) this is a no-op on the DB side.

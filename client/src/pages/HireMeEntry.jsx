@@ -11,9 +11,11 @@ import { Icon } from '../components/Icon.jsx';
 import { Avatar } from '../components/Primitives.jsx';
 import { EntryShell, AddressField } from '../components/HomeownerEntry.jsx';
 import { useRouter } from '../lib/router.jsx';
+import { useAuth } from '../lib/AuthContext.jsx';
 
 export function HireMeEntryPage({ slug }) {
   const { navigate } = useRouter();
+  const { user } = useAuth();
   const [pro, setPro] = useState(null);
   const [addressText, setAddressText] = useState('');
 
@@ -42,7 +44,15 @@ export function HireMeEntryPage({ slug }) {
       entry_source: 'hire-me',
       pro: slug,
     });
-    navigate(`/auth/homeowner?${qs.toString()}`);
+    // Signed-in users already have an account — route them to the
+    // "add a home to your existing account" flow. The public signup
+    // path would be force-bounced to /feed by the App.jsx auth-page
+    // guard, dropping the address + pro slug along the way.
+    if (user) {
+      navigate(`/mode/setup-homeowner?${qs.toString()}`);
+    } else {
+      navigate(`/auth/homeowner?${qs.toString()}`);
+    }
   };
 
   return (
