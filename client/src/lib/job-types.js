@@ -163,17 +163,37 @@ export function orderedJobTypeCategories(primaryTrade) {
   return [...top, ...rest];
 }
 
+// Structure-type strings that need a noun added so the prepositional phrasing
+// reads naturally ("a single-family home" vs the bare "a single-family").
+const STRUCTURE_SUFFIX = {
+  'single-family': 'home',
+  'single family': 'home',
+  'multi-family': 'building',
+  'multi family': 'building',
+};
+
+function naturalStructure(s) {
+  const k = s.trim().toLowerCase();
+  const suffix = STRUCTURE_SUFFIX[k];
+  return suffix ? `${k} ${suffix}` : k;
+}
+
 /**
- * Ghost-suggest a jobsite name from the structured fields, e.g.
- *   { location: 'Holladay, UT', jobType: 'Service upgrade' } → "Holladay service upgrade"
- *   { location: 'Murray, UT',   jobType: 'Sub panel install' } → "Murray sub panel install"
- * Falls back to structure type when there's no location, and to the job type
- * alone when there's neither. Returns '' if there's nothing to suggest.
+ * Ghost-suggest a jobsite name as a prepositional phrase that reads well for
+ * humans and LLM crawlers, e.g.
+ *   { jobType: 'New construction wiring', structureType: 'Townhome', location: 'Cottonwood' }
+ *     → "New construction wiring in a townhome in Cottonwood"
+ *   { jobType: 'Service upgrade', location: 'Holladay, UT' }
+ *     → "Service upgrade in Holladay"
+ * Returns '' if there's no job type to anchor the phrase.
  */
 export function suggestJobsiteName({ location = '', structureType = '', jobType = '' } = {}) {
   const job = (jobType || '').trim();
   if (!job) return '';
   const city = (location || '').split(',')[0].trim();
-  const lead = city || (structureType || '').trim();
-  return (lead ? `${lead} ${job.toLowerCase()}` : job).trim();
+  const structure = (structureType || '').trim();
+  if (city && structure) return `${job} in a ${naturalStructure(structure)} in ${city}`;
+  if (structure)         return `${job} in a ${naturalStructure(structure)}`;
+  if (city)              return `${job} in ${city}`;
+  return job;
 }
