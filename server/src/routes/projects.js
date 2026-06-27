@@ -7,6 +7,7 @@
 import { Router } from 'express';
 import { q } from '../db.js';
 import { requireAuth } from '../middleware.js';
+import { publicUrl } from '../storage.js';
 
 const router = Router();
 
@@ -224,6 +225,38 @@ function buildStubSow({ project, home, draft }) {
   };
 }
 
+// Translate a JSON of storage keys to a JSON of public URLs the client can
+// render. Mirrors the helper in photos.js.
+function photoUrlsFor(variantsJson) {
+  if (!variantsJson) return null;
+  let parsed = variantsJson;
+  if (typeof variantsJson === 'string') {
+    try { parsed = JSON.parse(variantsJson); } catch { return null; }
+  }
+  if (typeof parsed !== 'object') return null;
+  const out = {};
+  for (const [size, key] of Object.entries(parsed)) {
+    if (typeof key === 'string') out[size] = publicUrl(key);
+  }
+  return out;
+}
+
+async function loadProjectPhotos(projectId) {
+  const { rows } = await q(
+    `SELECT id, photo_url, annotations, position
+       FROM project_photos
+       WHERE project_id = $1
+       ORDER BY position ASC, id ASC`,
+    [projectId]
+  );
+  return rows.map(r => ({
+    id: r.id,
+    urls: photoUrlsFor(r.photo_url),
+    annotations: r.annotations || [],
+    position: r.position,
+  }));
+}
+
 function shapeProject(row) {
   return {
     id: row.id,
@@ -273,7 +306,9 @@ router.post('/projects', requireAuth, async (req, res) => {
      RETURNING *`,
     [homeId, kind, title, proSlug]
   );
-  res.status(201).json({ project: shapeProject(rows[0]) });
+  const project = shapeProject(rows[0]);
+  project.photos = [];
+  res.status(201).json({ project });
 });
 
 // ── GET /api/projects?home_id=… ───────────────────────────────────────────
@@ -306,7 +341,9 @@ router.get('/projects/:id', requireAuth, async (req, res) => {
     [projectId, req.userId]
   );
   if (!rows.length) return res.status(404).json({ error: 'not found' });
-  res.json({ project: shapeProject(rows[0]) });
+  const project = shapeProject(rows[0]);
+  project.photos = await loadProjectPhotos(projectId);
+  res.json({ project });
 });
 
 // ── PATCH /api/projects/:id ───────────────────────────────────────────────
@@ -351,7 +388,9 @@ router.patch('/projects/:id', requireAuth, async (req, res) => {
        RETURNING *`,
     vals
   );
-  res.json({ project: shapeProject(rows[0]) });
+  const project = shapeProject(rows[0]);
+  project.photos = await loadProjectPhotos(projectId);
+  res.json({ project });
 });
 
 // ── POST /api/projects/:id/generate-sow ───────────────────────────────────
@@ -397,7 +436,9 @@ router.post('/projects/:id/generate-sow', requireAuth, async (req, res) => {
       RETURNING *`,
     [JSON.stringify(mergedDraft), JSON.stringify(sow), projectId]
   );
-  res.json({ project: shapeProject(rows[0]) });
+  const project = shapeProject(rows[0]);
+  project.photos = await loadProjectPhotos(projectId);
+  res.json({ project });
 });
 
 export default router;

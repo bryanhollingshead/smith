@@ -20,6 +20,7 @@ import {
   BUDGET_TIERS, formatBudgetRange,
   DECISION_CRITERIA,
 } from '../lib/project-types.js';
+import { PhotosButton, PhotosInline } from '../components/ProjectPhotos.jsx';
 
 export function ProjectSpecPage({ id }) {
   const { navigate } = useRouter();
@@ -57,6 +58,10 @@ export function ProjectSpecPage({ id }) {
     }
   };
 
+  const onPhotosChange = (nextPhotos) => {
+    setProject(p => p ? { ...p, photos: nextPhotos } : p);
+  };
+
   if (loading) {
     return <div style={{ padding: 80, color: B.faint, fontStyle: 'italic' }}>Loading…</div>;
   }
@@ -74,6 +79,7 @@ export function ProjectSpecPage({ id }) {
         project={project}
         saving={saving}
         onContinue={(words) => advance({ homeowner_words: words, step: 'playback' })}
+        onPhotosChange={onPhotosChange}
       />
     );
   } else if (step === 'playback') {
@@ -162,23 +168,29 @@ export function ProjectSpecPage({ id }) {
     );
   } else if (step === 'review') {
     body = project.sow
-      ? <SowReviewStep project={project} navigate={navigate}/>
+      ? <SowReviewStep project={project} onPhotosChange={onPhotosChange} navigate={navigate}/>
       : <ReviewMissingSowStep project={project}/>;
   } else {
-    body = <SowReviewStep project={project} navigate={navigate}/>;
+    body = <SowReviewStep project={project} onPhotosChange={onPhotosChange} navigate={navigate}/>;
   }
 
   return (
-    <SpecShell project={project} step={step} navigate={navigate} saving={saving} error={error}>
+    <SpecShell
+      project={project}
+      step={step}
+      navigate={navigate}
+      saving={saving}
+      error={error}
+      onPhotosChange={onPhotosChange}>
       {body}
     </SpecShell>
   );
 }
 
-function SpecShell({ project, step, navigate, saving, error, children }) {
+function SpecShell({ project, step, navigate, saving, error, onPhotosChange, children }) {
   return (
     <div style={{ padding: '40px 32px 80px', maxWidth: 720, margin: '0 auto' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24, gap: 12 }}>
         <button
           onClick={() => navigate(`/home/${project.home_id}`)}
           style={{
@@ -188,9 +200,16 @@ function SpecShell({ project, step, navigate, saving, error, children }) {
           }}>
           <Icon name="arrow-l" size={14}/> Save & come back
         </button>
-        {saving && (
-          <span style={{ color: B.faint, fontSize: 12, fontStyle: 'italic' }}>Saving…</span>
-        )}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          {saving && (
+            <span style={{ color: B.faint, fontSize: 12, fontStyle: 'italic' }}>Saving…</span>
+          )}
+          <PhotosButton
+            projectId={project.id}
+            photos={project.photos || []}
+            onChange={onPhotosChange}
+          />
+        </div>
       </div>
       <div style={{
         color: B.faint, fontSize: 11, fontWeight: 600,
@@ -211,9 +230,10 @@ function SpecShell({ project, step, navigate, saving, error, children }) {
 }
 
 // ── Step 1: Describe ──────────────────────────────────────────────────────
-function DescribeStep({ project, saving, onContinue }) {
+function DescribeStep({ project, saving, onContinue, onPhotosChange }) {
   const [text, setText] = useState(project.draft?.homeowner_words || '');
   const ready = text.trim().length > 0 && !saving;
+  const photoCount = (project.photos || []).length;
   return (
     <div>
       <h1 className="serif" style={{
@@ -239,7 +259,36 @@ function DescribeStep({ project, saving, onContinue }) {
           padding: '14px 16px', fontSize: 15, lineHeight: 1.55,
           fontFamily: 'inherit', resize: 'vertical', outline: 'none',
         }}/>
-      <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 18 }}>
+
+      <div style={{
+        marginTop: 18,
+        background: B.bg, border: `1px dashed ${B.line}`,
+        borderRadius: 8, padding: '14px 16px',
+      }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 14 }}>
+          <div>
+            <div className="serif" style={{
+              color: B.text, fontSize: 14, fontWeight: 600, marginBottom: 2,
+            }}>Show us what you're talking about.</div>
+            <div style={{ color: B.dim, fontSize: 12.5, lineHeight: 1.5 }}>
+              Photos earn sharper bids — pros see details you'd never think to write.
+              Drop pins on the bits that matter most.
+            </div>
+          </div>
+          <PhotosButton
+            projectId={project.id}
+            photos={project.photos || []}
+            onChange={onPhotosChange}
+          />
+        </div>
+        {photoCount > 0 && (
+          <div style={{ marginTop: 14 }}>
+            <PhotosInline photos={project.photos}/>
+          </div>
+        )}
+      </div>
+
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 22 }}>
         <button
           onClick={() => onContinue(text.trim())}
           disabled={!ready}
@@ -579,10 +628,11 @@ function CriteriaStep({ project, saving, onBuild, onBack }) {
 }
 
 // ── Step 9: Review the SOW ────────────────────────────────────────────────
-function SowReviewStep({ project, navigate }) {
+function SowReviewStep({ project, navigate, onPhotosChange }) {
   const sow = project.sow || {};
   const scopeIn = (sow.scope || []).filter(s => s.in_or_out !== 'out');
   const scopeOut = (sow.scope || []).filter(s => s.in_or_out === 'out');
+  const photos = project.photos || [];
   return (
     <div>
       <div style={{
@@ -660,6 +710,33 @@ function SowReviewStep({ project, navigate }) {
           fontStyle: 'italic', whiteSpace: 'pre-wrap',
         }}>"{sow.homeowner_words || project.draft?.homeowner_words || ''}"</div>
       </SowSection>
+
+      <section style={{
+        background: B.surface, border: `1px solid ${B.line}`,
+        borderRadius: 8, padding: '18px 22px', marginTop: 16,
+      }}>
+        <div style={{
+          display: 'flex', justifyContent: 'space-between',
+          alignItems: 'center', gap: 12, marginBottom: photos.length ? 14 : 0,
+        }}>
+          <div style={{
+            color: B.faint, fontSize: 11, fontWeight: 600,
+            letterSpacing: '0.04em', textTransform: 'uppercase',
+          }}>What we're looking at</div>
+          <PhotosButton
+            projectId={project.id}
+            photos={photos}
+            onChange={onPhotosChange}
+          />
+        </div>
+        {photos.length > 0 ? (
+          <PhotosInline photos={photos}/>
+        ) : (
+          <div style={{ color: B.dim, fontSize: 13, fontStyle: 'italic' }}>
+            No photos yet. Drop a few in to sharpen the bids.
+          </div>
+        )}
+      </section>
 
       {(sow.context_qa || []).length > 0 && (
         <SowSection title="What we asked you">
