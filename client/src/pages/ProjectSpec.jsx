@@ -83,11 +83,18 @@ export function ProjectSpecPage({ id }) {
       />
     );
   } else if (step === 'playback') {
+    // The `custom` kind ("I'll tell you what I want") skips the canned
+    // q1/q2/q3 step — there's no shared frame for what to ask without
+    // reading the free text, so we let the user keep going. Real
+    // dynamically-generated questions land when Claude is wired.
+    const afterPlayback = project.kind === 'custom'
+      ? (hasStyleStep(project.kind) ? 'style' : 'budget')
+      : 'q1';
     body = (
       <PlaybackStep
         project={project}
         saving={saving}
-        onContinue={() => advance({ playback_confirmed: true, step: 'q1' })}
+        onContinue={() => advance({ playback_confirmed: true, step: afterPlayback })}
         onEdit={() => advance({ step: 'describe' })}
       />
     );
@@ -117,6 +124,9 @@ export function ProjectSpecPage({ id }) {
       );
     }
   } else if (step === 'style') {
+    // Back from style on the custom path skips the question step that was
+    // never visited and returns to playback.
+    const styleBackStep = project.kind === 'custom' ? 'playback' : `q${questions.length}`;
     body = (
       <StyleStep
         project={project}
@@ -125,7 +135,7 @@ export function ProjectSpecPage({ id }) {
           style: { tone: opt.value, label: opt.label, refs: [] },
           step: 'budget',
         })}
-        onBack={() => advance({ step: `q${questions.length}` })}
+        onBack={() => advance({ step: styleBackStep })}
       />
     );
   } else if (step === 'budget') {
