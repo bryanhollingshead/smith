@@ -132,3 +132,93 @@ export const CLARIFYING_QUESTIONS = {
       options: ['ASAP', 'In a few months', 'This year', 'No rush'] },
   ],
 };
+
+// Style direction. Aesthetic projects get the rich chip set; roof gets a
+// stripped color-focused set. HVAC and electrical skip the style step
+// entirely (see STYLE_KINDS below). Claude generates richer style
+// descriptors + reference photos in v2.
+const RICH_STYLE = [
+  { value: 'spa',              label: 'Spa',                  note: 'Soft, warm, calm. Stone, wood, dimmable lighting.' },
+  { value: 'modern-farmhouse', label: 'Modern farmhouse',     note: 'Mixed materials, painted millwork, restrained palette.' },
+  { value: 'industrial',       label: 'Industrial',           note: 'Concrete, metal, exposed structure, raw textures.' },
+  { value: 'vintage',          label: 'Vintage',              note: 'Period-appropriate, restored fixtures, classic tile.' },
+  { value: 'open',             label: 'Open to suggestions',  note: "Let the pro propose what fits the house." },
+];
+
+const ROOF_STYLE = [
+  { value: 'earth-tones',  label: 'Earth tones',          note: 'Warm browns, slate, weathered greys.' },
+  { value: 'classic-dark', label: 'Classic dark',         note: 'Black, charcoal, deep grey.' },
+  { value: 'cool-greys',   label: 'Cool greys',           note: 'Cooler tones, modern profiles.' },
+  { value: 'open',         label: 'Open to suggestions',  note: 'Match what fits the neighborhood and house.' },
+];
+
+export const STYLE_OPTIONS = {
+  'bathroom-remodel': RICH_STYLE,
+  'kitchen-remodel':  RICH_STYLE,
+  'finish-basement':  RICH_STYLE,
+  'roof-replacement': ROOF_STYLE,
+  'custom':           RICH_STYLE,
+};
+
+const STYLE_KINDS = new Set(Object.keys(STYLE_OPTIONS));
+
+export function hasStyleStep(kind) {
+  return STYLE_KINDS.has(kind);
+}
+
+// Budget comfort — three tiers per project type with USA-median ranges.
+// A comfort zone the homeowner picks before bids come in; not a quote.
+// Hardcoded for v1; v2 derives from regional comps + Claude.
+export const BUDGET_TIERS = {
+  'bathroom-remodel': [
+    { tier: 'builder-grade', label: 'Builder-grade', range: [8000, 15000],   note: 'Big-box fixtures, prefab vanity, painted trim.' },
+    { tier: 'mid',           label: 'Mid-range',     range: [18000, 35000],  note: 'Custom vanity, tile shower, name-brand fixtures.' },
+    { tier: 'high',          label: 'High-end',      range: [40000, 80000],  note: 'Designer-spec, luxury materials, full custom.' },
+  ],
+  'kitchen-remodel': [
+    { tier: 'builder-grade', label: 'Builder-grade', range: [20000, 40000],   note: 'Stock cabinets, laminate or basic stone, standard layout.' },
+    { tier: 'mid',           label: 'Mid-range',     range: [50000, 90000],   note: 'Semi-custom cabinets, quartz, layout updates.' },
+    { tier: 'high',          label: 'High-end',      range: [100000, 200000], note: 'Custom cabinets, premium stone, full reconfigure.' },
+  ],
+  'finish-basement': [
+    { tier: 'builder-grade', label: 'Builder-grade', range: [30000, 60000],   note: 'Open room, basic bath, carpet, painted walls.' },
+    { tier: 'mid',           label: 'Mid-range',     range: [70000, 120000],  note: 'Defined rooms, full bath, quality finishes.' },
+    { tier: 'high',          label: 'High-end',      range: [150000, 250000], note: 'Suite + entertainment + kitchenette, custom finishes.' },
+  ],
+  'hvac-replacement': [
+    { tier: 'builder-grade', label: 'Builder-grade', range: [5000, 9000],   note: 'Standard-efficiency, like-for-like swap.' },
+    { tier: 'mid',           label: 'Mid-range',     range: [10000, 16000], note: 'Higher-efficiency, smart thermostat.' },
+    { tier: 'high',          label: 'High-end',      range: [18000, 30000], note: 'Heat pump, variable-speed, zoned.' },
+  ],
+  'roof-replacement': [
+    { tier: 'builder-grade', label: 'Builder-grade', range: [8000, 15000],  note: 'Asphalt shingle, 25-yr warranty.' },
+    { tier: 'mid',           label: 'Mid-range',     range: [18000, 30000], note: 'Architectural shingle or basic metal.' },
+    { tier: 'high',          label: 'High-end',      range: [35000, 60000], note: 'Standing-seam metal, tile, or premium architectural.' },
+  ],
+  'electrical-panel': [
+    { tier: 'builder-grade', label: 'Builder-grade', range: [2000, 4000],  note: 'Like-for-like panel swap.' },
+    { tier: 'mid',           label: 'Mid-range',     range: [4000, 7000],  note: 'Upsize amperage, surge protection.' },
+    { tier: 'high',          label: 'High-end',      range: [8000, 15000], note: 'Smart panel, EV-ready, solar-ready.' },
+  ],
+  'custom': [
+    { tier: 'builder-grade', label: 'Budget-conscious', range: null, note: 'Cost is the top priority.' },
+    { tier: 'mid',           label: 'Balanced',         range: null, note: 'Reasonable quality at reasonable cost.' },
+    { tier: 'high',          label: 'Premium',          range: null, note: "Quality first; cost isn't the constraint." },
+  ],
+};
+
+export function formatBudgetRange(range) {
+  if (!range) return '';
+  const [lo, hi] = range;
+  const k = (n) => n >= 1000 ? `$${Math.round(n / 1000)}k` : `$${n}`;
+  return `${k(lo)} – ${k(hi)}`;
+}
+
+// Decision criteria — load-bearing primitive per memory:
+// project-spec-flow-architecture. Single-select for v1.
+export const DECISION_CRITERIA = [
+  { value: 'fastest-start',   label: 'Fastest start',                note: 'Whoever can mobilize first wins.' },
+  { value: 'lowest-bid',      label: 'Lowest bid',                   note: 'Price is the deciding factor.' },
+  { value: 'best-fit',        label: 'Best fit',                     note: 'Style, experience, and approach matter most.' },
+  { value: 'know-it-when',    label: "I'll know it when I see it",   note: "Show me proposals and I'll decide." },
+];
