@@ -108,4 +108,49 @@ router.get('/projects/:id', requireAuth, async (req, res) => {
   res.json({ project: shapeProject(rows[0]) });
 });
 
+// ── PATCH /api/projects/:id ───────────────────────────────────────────────
+// Update an in-progress draft. v1 accepts `draft` (full JSONB replace) and
+// `title`. Status/coordination_role move through dedicated flows (classifier,
+// send) which don't exist yet.
+router.patch('/projects/:id', requireAuth, async (req, res) => {
+  const projectId = parseInt(req.params.id, 10);
+  if (!Number.isFinite(projectId)) return res.status(400).json({ error: 'invalid id' });
+
+  const { rows: existing } = await q(
+    `SELECT p.* FROM projects p
+       JOIN homes h ON h.id = p.home_id
+      WHERE p.id = $1 AND h.owner_user_id = $2`,
+    [projectId, req.userId]
+  );
+  if (!existing.length) return res.status(404).json({ error: 'not found' });
+
+  const body = req.body || {};
+  const cols = [];
+  const vals = [];
+  if (body.draft !== undefined) {
+    if (body.draft === null || typeof body.draft !== 'object') {
+      return res.status(400).json({ error: 'draft must be an object' });
+    }
+    cols.push('draft');
+    vals.push(JSON.stringify(body.draft));
+  }
+  if (body.title !== undefined) {
+    cols.push('title');
+    vals.push(String(body.title));
+  }
+  if (!cols.length) {
+    return res.json({ project: shapeProject(existing[0]) });
+  }
+
+  const setStr = cols.map((c, i) => `${c} = $${i + 1}`).join(', ');
+  vals.push(projectId);
+  const { rows } = await q(
+    `UPDATE projects SET ${setStr}, updated_at = NOW()
+       WHERE id = $${vals.length}
+       RETURNING *`,
+    vals
+  );
+  res.json({ project: shapeProject(rows[0]) });
+});
+
 export default router;
