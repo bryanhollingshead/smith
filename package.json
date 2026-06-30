@@ -1,0 +1,19 @@
+{
+  "name": "smith",
+  "version": "0.1.0",
+  "description": "Smith — monorepo root. One-command local dev (server :4000 + client :5173).",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "dev:stop": "node scripts/dev-stop.mjs",
+    "migrate": "npm --prefix server run migrate",
+    "seed": "npm --prefix server run seed",
+    "reset": "npm --prefix server run reset",
+    "build": "npm --prefix client run build",
+    "install:all": "npm install && npm --prefix server install && npm --prefix client install"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0"
+  }
+}

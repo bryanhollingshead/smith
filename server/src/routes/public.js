@@ -14,8 +14,18 @@ import { Router } from 'express';
 import { q } from '../db.js';
 import { loadProfile } from './profiles.js';
 import { createInquiry, resolveMagicToken, postInquirerReplyViaToken } from '../hire-me.js';
+import { FEATURE_HIRE_ME } from '../flags.js';
 
 const router = Router();
+
+// Per-handler gate for the three hire-me endpoints inside this router.
+// The router itself stays mounted because /profiles/:slug and /search are
+// core; only the hire-me submission + magic-link reply get hidden when
+// FEATURE_HIRE_ME is off.
+function requireHireMe(_req, res, next) {
+  if (!FEATURE_HIRE_ME) return res.status(404).json({ error: 'Not found' });
+  next();
+}
 
 // ── In-memory rate limit — minimal abuse protection ──────────────────────
 // Per-IP token bucket. 5 submits per IP per 10 minutes is more than a real
@@ -130,7 +140,7 @@ router.get('/search', async (req, res) => {
 // Creates the inquiry + message thread + notification. Returns a friendly
 // confirmation (no internal IDs visible to the public). Required fields are
 // gated; rate limited per IP.
-router.post('/hire-me/:slug', async (req, res) => {
+router.post('/hire-me/:slug', requireHireMe, async (req, res) => {
   const ip = clientIp(req);
   if (!rateLimit(ip)) {
     return res.status(429).json({ error: 'Too many inquiries from your network. Try again later.' });
@@ -189,7 +199,7 @@ router.post('/hire-me/:slug', async (req, res) => {
 // ── GET /api/public/hire-me/thread/:token ────────────────────────────────
 // Loads the thread view for the inquirer. Returns messages + the original
 // inquiry structured data, but NOT a way to know other Smith users.
-router.get('/hire-me/thread/:token', async (req, res) => {
+router.get('/hire-me/thread/:token', requireHireMe, async (req, res) => {
   const resolved = await resolveMagicToken(req.params.token);
   if (!resolved) return res.status(404).json({ error: 'Not found' });
   if (resolved.expired) return res.status(410).json({ error: 'Link expired' });
@@ -242,7 +252,7 @@ router.get('/hire-me/thread/:token', async (req, res) => {
 // ── POST /api/public/hire-me/thread/:token/reply ─────────────────────────
 // Inquirer's reply via magic-link. Token is single-use — used_at flips on
 // success. The next target reply generates a fresh token.
-router.post('/hire-me/thread/:token/reply', async (req, res) => {
+router.post('/hire-me/thread/:token/reply', requireHireMe, async (req, res) => {
   const ip = clientIp(req);
   if (!rateLimit(ip)) {
     return res.status(429).json({ error: 'Too many replies from your network. Try again later.' });

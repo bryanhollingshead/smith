@@ -11,6 +11,7 @@ import {
 } from '../auth-utils.js';
 import { sendVerificationEmail, sendResetEmail } from '../mailer.js';
 import { requireAuth } from '../middleware.js';
+import { FEATURE_HOMEOWNER } from '../flags.js';
 
 const router = Router();
 
@@ -113,7 +114,10 @@ router.post('/signup', async (req, res) => {
   if (!email || !password) {
     return res.status(400).json({ error: 'Email and password required' });
   }
-  const role = roleIn === 'homeowner' ? 'homeowner' : 'tradesperson';
+  // When the homeowner feature is gated off we ignore role + hiring_context
+  // in the body so the endpoint contract doesn't break for stale clients —
+  // every signup becomes a tradesperson and goes through onboarding.
+  const role = (FEATURE_HOMEOWNER && roleIn === 'homeowner') ? 'homeowner' : 'tradesperson';
   const skipOnboarding = role === 'homeowner';
   // hiring_context is asked one-tap during the homeowner signup. NULL means
   // "never asked" → display label defaults to "Homeowner". Validate against
@@ -372,7 +376,10 @@ router.get('/me', requireAuth, async (req, res) => {
 //                                     we don't touch existing rows.)
 // Returns the full shaped user — including profiles.{tradesman,homeowner}
 // flags so the client knows whether the target mode needs a setup flow.
-router.patch('/me/mode', requireAuth, async (req, res) => {
+router.patch('/me/mode', async (req, res, next) => {
+  if (!FEATURE_HOMEOWNER) return res.status(404).json({ error: 'Not found' });
+  next();
+}, requireAuth, async (req, res) => {
   const { mode } = req.body || {};
   if (mode !== 'tradesman' && mode !== 'homeowner') {
     return res.status(400).json({ error: 'Invalid mode' });

@@ -22,6 +22,15 @@ import { q } from '../db.js';
 import { requireAuth } from '../middleware.js';
 import { processSquare, processCover } from '../image-processing.js';
 import { publicUrl, deleteVariants } from '../storage.js';
+import { FEATURE_HOMEOWNER } from '../flags.js';
+
+// Per-handler gate for project photo routes — they belong to the homeowner
+// cluster. Avatar / cover / company / jobsite / post routes in this file
+// stay reachable regardless.
+function requireHomeowner(_req, res, next) {
+  if (!FEATURE_HOMEOWNER) return res.status(404).json({ error: 'Not found' });
+  next();
+}
 
 const router = Router();
 
@@ -494,7 +503,7 @@ function normalizeAnnotations(input) {
   return out;
 }
 
-router.post('/project/:id', requireAuth, withUpload, async (req, res) => {
+router.post('/project/:id', requireHomeowner, requireAuth, withUpload, async (req, res) => {
   const projectId = parseInt(req.params.id, 10);
   if (!Number.isFinite(projectId)) return res.status(400).json({ error: 'Invalid id' });
 
@@ -527,7 +536,7 @@ router.post('/project/:id', requireAuth, withUpload, async (req, res) => {
   }
 });
 
-router.delete('/project/:id/photo/:photoId', requireAuth, async (req, res) => {
+router.delete('/project/:id/photo/:photoId', requireHomeowner, requireAuth, async (req, res) => {
   const projectId = parseInt(req.params.id, 10);
   const photoId = parseInt(req.params.photoId, 10);
   if (!Number.isFinite(projectId) || !Number.isFinite(photoId))
@@ -550,7 +559,7 @@ router.delete('/project/:id/photo/:photoId', requireAuth, async (req, res) => {
   res.json({ ok: true, photos });
 });
 
-router.patch('/project/:id/photo/:photoId', requireAuth, async (req, res) => {
+router.patch('/project/:id/photo/:photoId', requireHomeowner, requireAuth, async (req, res) => {
   const projectId = parseInt(req.params.id, 10);
   const photoId = parseInt(req.params.photoId, 10);
   if (!Number.isFinite(projectId) || !Number.isFinite(photoId))
@@ -581,7 +590,7 @@ router.patch('/project/:id/photo/:photoId', requireAuth, async (req, res) => {
   });
 });
 
-router.patch('/project/:id/photos', requireAuth, async (req, res) => {
+router.patch('/project/:id/photos', requireHomeowner, requireAuth, async (req, res) => {
   const projectId = parseInt(req.params.id, 10);
   if (!Number.isFinite(projectId)) return res.status(400).json({ error: 'Invalid id' });
 

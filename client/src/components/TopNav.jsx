@@ -14,6 +14,7 @@ import { SmithAvatar } from './SmithAvatar.jsx';
 import { ModeToggle } from './ModeToggle.jsx';
 import { AdminMenuItems, AdminModals } from './AdminTools.jsx';
 import { InviteModal } from './InviteTools.jsx';
+import { FEATURE_JOBS, FEATURE_HOMEOWNER, FEATURE_HIRE_ME } from '../lib/flags.js';
 
 export function TopNav({ active }) {
   const { navigate } = useRouter();
@@ -71,13 +72,13 @@ export function TopNav({ active }) {
     { k: 'feed', label: 'Feed', icon: 'home', to: '/feed' },
     { k: 'profile', label: 'Profile', icon: 'user', to: '/profile' },
     { k: 'connections', label: 'Connections', icon: 'users', to: '/connections' },
-    { k: 'jobs', label: 'Jobs', icon: 'briefcase', to: '/jobs' },
-    { k: 'inquiries', label: 'Inquiries', icon: 'hardhat', to: '/inquiries' },
+    FEATURE_JOBS    && { k: 'jobs', label: 'Jobs', icon: 'briefcase', to: '/jobs' },
+    FEATURE_HIRE_ME && { k: 'inquiries', label: 'Inquiries', icon: 'hardhat', to: '/inquiries' },
     { k: 'news', label: 'News', icon: 'newspaper', to: '/news' },
     { k: 'messages', label: 'Messages', icon: 'message', to: '/messages',
       badge: unreadMessages || null },
     { k: 'notifications', label: 'Alerts', icon: 'bell', to: '/alerts', badge: unread || null },
-  ];
+  ].filter(Boolean);
 
   return (
     <header style={{
@@ -98,7 +99,7 @@ export function TopNav({ active }) {
 
         {/* Mode toggle — visible in tradesman shell, marks the current mode
             and lets the user flip to homeowner without leaving the nav. */}
-        <ModeToggle variant="pill"/>
+        {FEATURE_HOMEOWNER && <ModeToggle variant="pill"/>}
 
         <nav style={{ display: 'flex', gap: 4, marginLeft: 'auto' }}>
           {items.map(it => (

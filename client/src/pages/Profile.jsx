@@ -14,6 +14,7 @@ import {
 import { api } from '../lib/api.js';
 import { useAuth } from '../lib/AuthContext.jsx';
 import { useRouter } from '../lib/router.jsx';
+import { FEATURE_JOBS } from '../lib/flags.js';
 
 export function ProfilePage({ userId }) {
   const { user } = useAuth();
@@ -81,7 +82,7 @@ export function ProfilePage({ userId }) {
               />
               <AboutSection profile={profile} isMe={isMe} onEdit={() => navigate('/profile/edit')}/>
               {isMe && <ProfileStrengthBanner onEdit={() => navigate('/profile/edit')}/>}
-              {isMe && <ProfileCompletenessCard onEdit={() => navigate('/profile/edit')}/>}
+              {isMe && FEATURE_JOBS && <ProfileCompletenessCard onEdit={() => navigate('/profile/edit')}/>}
               <FeaturedSection profile={profile} isMe={isMe} navigate={navigate} onEdit={() => navigate('/profile/edit')}/>
               <CompaniesSection profile={profile} isMe={isMe} onEdit={() => navigate('/profile/edit')}/>
               <CredentialsSection profile={profile} isMe={isMe} onEdit={() => navigate('/profile/edit')}/>

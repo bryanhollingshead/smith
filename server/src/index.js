@@ -43,6 +43,7 @@ import adminUsersRouter from './routes/admin-users.js';
 import seoRouter from './routes/seo.js';
 import feedbackRouter from './routes/feedback.js';
 import { createSpaMeta } from './spa-meta.js';
+import { FEATURE_JOBS, FEATURE_HOMEOWNER, FEATURE_HIRE_ME, logFlags } from './flags.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
@@ -80,12 +81,23 @@ app.use('/api/messages', messagesRouter); // /threads, /threads/:id/messages, /u
 app.use('/api', openapiRouter);       // /openapi.yaml, /openapi.json, /docs
 app.use('/api/photos', photosRouter); // /avatar, /cover  (POST + DELETE)
 app.use('/api', filesRouter);         // /files/*  (serves storage objects)
-app.use('/api', jobsRouter);          // /admin/jobs/*  (phase 2); /jobs/* feed lands in phase 3
-app.use('/api', applicationsRouter);  // /jobs/:id/draft, /applications/*  (phase 4)
-app.use('/api/public', publicRouter); // public profile + search + hire-me submit + magic-link reply (phase 5)
-app.use('/api', hireMeRouter);        // /hire-me/inbox, /hire-me/:id  (phase 5, authed)
-app.use('/api', homesRouter);         // /places/autocomplete (public), /homes/* (authed)  (phase 6, homeowner entry)
-app.use('/api', projectsRouter);      // /projects/* (authed, homeowner spec flow)
+
+// Feature-flag-gated routers. When the flag is OFF (prod default), the
+// router never mounts so endpoints 404 cleanly. publicRouter stays mounted
+// regardless because the profile view + search are core; the hire-me
+// handlers inside it self-gate (see routes/public.js).
+if (FEATURE_JOBS) {
+  app.use('/api', jobsRouter);          // /admin/jobs/*, /jobs/* feed + save/dismiss
+  app.use('/api', applicationsRouter);  // /jobs/:id/draft, /applications/*
+}
+app.use('/api/public', publicRouter);   // public profile + search (always live); hire-me handlers inside self-gate
+if (FEATURE_HIRE_ME) {
+  app.use('/api', hireMeRouter);        // /hire-me/inbox, /hire-me/:id  (authed)
+}
+if (FEATURE_HOMEOWNER) {
+  app.use('/api', homesRouter);         // /places/autocomplete (public), /homes/* (authed)
+  app.use('/api', projectsRouter);      // /projects/* (authed, homeowner spec flow)
+}
 app.use('/api', adminUsersRouter);    // /admin/demo-users, /admin/users/:id/{impersonate,password}  (admin-only)
 app.use('/api/feedback', feedbackRouter); // Signal payloads → Linear (feedback widget)
 
@@ -158,6 +170,7 @@ const server = app.listen(PORT, () => {
   if (IS_PROD && haveBuild) {
     console.log(`    Serving SPA from ${clientDist}`);
   }
+  logFlags();
   console.log();
 });
 
@@ -208,32 +221,36 @@ if (IS_PROD) {
   // record the reason to job_sources.last_status — the loop keeps running so
   // adding creds later "just works" without a redeploy. The seed Adzuna
   // source ships with enabled=FALSE; flip it on after wiring credentials.
-  const runJobsIngest = async () => {
-    const startedAt = new Date();
-    try {
-      const summary = await ingestAllJobs();
-      const totals = summary.reduce(
-        (acc, r) => ({
-          inserted: acc.inserted + (r.inserted || 0),
-          updated:  acc.updated  + (r.updated  || 0),
-          errors:   acc.errors   + (r.error ? 1 : 0),
-        }),
-        { inserted: 0, updated: 0, errors: 0 }
-      );
-      const duration = ((Date.now() - startedAt) / 1000).toFixed(1);
-      console.log(
-        `[ingest-jobs] cycle done — ${summary.length} sources, ` +
-        `${totals.inserted} new, ${totals.updated} updated, ${totals.errors} errors, ${duration}s`
-      );
-    } catch (e) {
-      console.error('[ingest-jobs] cycle threw:', e.message || e);
-    }
-  };
-  // Offset by 60s vs the news ingest so we don't slam external APIs in the
-  // same window on every cycle.
-  setTimeout(runJobsIngest, 90_000);
-  setInterval(runJobsIngest, HOUR_MS);
-  console.log(`[ingest-jobs] scheduler armed — first run in 90s, then every ${HOUR_MS / 60_000}m`);
+  // Gated on FEATURE_JOBS so prod doesn't churn against an empty Adzuna
+  // config while the Jobs module is hidden.
+  if (FEATURE_JOBS) {
+    const runJobsIngest = async () => {
+      const startedAt = new Date();
+      try {
+        const summary = await ingestAllJobs();
+        const totals = summary.reduce(
+          (acc, r) => ({
+            inserted: acc.inserted + (r.inserted || 0),
+            updated:  acc.updated  + (r.updated  || 0),
+            errors:   acc.errors   + (r.error ? 1 : 0),
+          }),
+          { inserted: 0, updated: 0, errors: 0 }
+        );
+        const duration = ((Date.now() - startedAt) / 1000).toFixed(1);
+        console.log(
+          `[ingest-jobs] cycle done — ${summary.length} sources, ` +
+          `${totals.inserted} new, ${totals.updated} updated, ${totals.errors} errors, ${duration}s`
+        );
+      } catch (e) {
+        console.error('[ingest-jobs] cycle threw:', e.message || e);
+      }
+    };
+    // Offset by 60s vs the news ingest so we don't slam external APIs in the
+    // same window on every cycle.
+    setTimeout(runJobsIngest, 90_000);
+    setInterval(runJobsIngest, HOUR_MS);
+    console.log(`[ingest-jobs] scheduler armed — first run in 90s, then every ${HOUR_MS / 60_000}m`);
+  }
 }
 
 // Graceful shutdown so docker-compose / CI doesn't hang.

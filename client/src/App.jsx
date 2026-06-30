@@ -41,6 +41,7 @@ import { HomeownerShell } from './components/HomeownerShell.jsx';
 import { ImpersonationBanner } from './components/AdminTools.jsx';
 import { FeedbackWidget } from './components/FeedbackWidget.jsx';
 import { modeOf, MODE } from './lib/mode.js';
+import { FEATURE_JOBS, FEATURE_HOMEOWNER, FEATURE_HIRE_ME } from './lib/flags.js';
 
 export function App() {
   const { user, booted } = useAuth();
@@ -69,9 +70,9 @@ export function App() {
     if (path === '/auth/reset')     return <ResetPasswordPage/>;
     if (path === '/auth/signin')    return <SignInPage/>;
     // Phase 7: intent picker is the new first step of account creation.
-    if (path === '/auth/start')     return <SignUpStartPage/>;
+    if (FEATURE_HOMEOWNER && path === '/auth/start')     return <SignUpStartPage/>;
     // Phase 6: homeowner self-serve signup is also publicly reachable.
-    if (path === '/auth/homeowner') return <HomeownerSignupPage/>;
+    if (FEATURE_HOMEOWNER && path === '/auth/homeowner') return <HomeownerSignupPage/>;
     // Phase 5: public profile + magic-link reply pages are reachable without auth.
     const slugMatchPub = match('/profile/:slug', path);
     if (slugMatchPub && !/^\d+$/.test(slugMatchPub.slug)) {
@@ -87,10 +88,12 @@ export function App() {
     // Phase 6: hire-me entry (homeowner-acquisition path #1) is public — it
     // collects an address then routes to /auth/homeowner with the address
     // pre-filled.
-    const hireMatch = match('/hire/:slug', path);
-    if (hireMatch) return <HireMeEntryPage slug={hireMatch.slug}/>;
-    const tokenMatchPub = match('/h/:token', path);
-    if (tokenMatchPub) return <MagicLinkReplyPage token={tokenMatchPub.token}/>;
+    if (FEATURE_HIRE_ME) {
+      const hireMatch = match('/hire/:slug', path);
+      if (hireMatch) return <HireMeEntryPage slug={hireMatch.slug}/>;
+      const tokenMatchPub = match('/h/:token', path);
+      if (tokenMatchPub) return <MagicLinkReplyPage token={tokenMatchPub.token}/>;
+    }
     // Default: marketing landing page. No redirect — visitors see Smith
     // before being asked to sign in.
     return <LandingPage/>;
@@ -102,28 +105,32 @@ export function App() {
 
   // Phase 7: setup-mode flows live outside both shells (they're transitional
   // by definition — the user is mid-switch and may not have the target
-  // mode's profile yet).
-  if (path === '/mode/setup-homeowner') return <ModeSetupHomeownerPage/>;
-  if (path === '/mode/setup-tradesman') return <ModeSetupTradesmanPage/>;
+  // mode's profile yet). Gated with homeowner.
+  if (FEATURE_HOMEOWNER && path === '/mode/setup-homeowner') return <ModeSetupHomeownerPage/>;
+  if (FEATURE_HOMEOWNER && path === '/mode/setup-tradesman') return <ModeSetupTradesmanPage/>;
 
   // AddressFound is a transitional "is this your home?" screen with its own
   // step-counter chrome — render it outside the shell in any mode.
-  const homeConfirmMatchTop = match('/home/:id/confirm', path);
-  if (homeConfirmMatchTop) {
-    return (
-      <>
-        <ImpersonationBanner/>
-        <MessagesProvider>
-          <AddressFoundPage id={homeConfirmMatchTop.id}/>
-        </MessagesProvider>
-      </>
-    );
+  if (FEATURE_HOMEOWNER) {
+    const homeConfirmMatchTop = match('/home/:id/confirm', path);
+    if (homeConfirmMatchTop) {
+      return (
+        <>
+          <ImpersonationBanner/>
+          <MessagesProvider>
+            <AddressFoundPage id={homeConfirmMatchTop.id}/>
+          </MessagesProvider>
+        </>
+      );
+    }
   }
 
   // Phase 7: shell fork by active mode. Homeowner mode gets its own
   // shell (left rail + homeowner nav); tradesman mode is the legacy
-  // TopNav + route tree.
-  if (modeOf(user) === MODE.HOMEOWNER) {
+  // TopNav + route tree. Gated with FEATURE_HOMEOWNER — if a user's
+  // persisted mode is homeowner but the flag is off, fall through to
+  // the tradesman shell (they can still see core networking surfaces).
+  if (FEATURE_HOMEOWNER && modeOf(user) === MODE.HOMEOWNER) {
     return (
       <>
         <ImpersonationBanner/>
@@ -168,24 +175,28 @@ export function App() {
         if (companyMatch) return <CompanyPage companyIdOrSlug={companyMatch.id}/>;
         if (path === '/news') return <NewsPage/>;
         if (path === '/news/saved') return <NewsSavedPage/>;
-        if (path === '/jobs') return <JobsPage/>;
-        if (path === '/inquiries') return <InquiriesPage/>;
+        if (FEATURE_JOBS && path === '/jobs') return <JobsPage/>;
+        if (FEATURE_HIRE_ME && path === '/inquiries') return <InquiriesPage/>;
         if (path === '/admin/news') return <AdminNewsPage/>;
         if (path === '/messages') return <MessagesPage/>;
         const msgMatch = match('/messages/:id', path);
         if (msgMatch) return <MessagesPage threadIdParam={msgMatch.id}/>;
         // Phase 6: homeowner seed-home flow — authed-only (post-signup).
-        const homeConfirmMatch = match('/home/:id/confirm', path);
-        if (homeConfirmMatch) return <AddressFoundPage id={homeConfirmMatch.id}/>;
-        const homeMatch = match('/home/:id', path);
-        if (homeMatch) return <SeedDashboardPage id={homeMatch.id}/>;
+        if (FEATURE_HOMEOWNER) {
+          const homeConfirmMatch = match('/home/:id/confirm', path);
+          if (homeConfirmMatch) return <AddressFoundPage id={homeConfirmMatch.id}/>;
+          const homeMatch = match('/home/:id', path);
+          if (homeMatch) return <SeedDashboardPage id={homeMatch.id}/>;
+        }
         // A homeowner who navigates to /hire/:slug while signed in still
         // belongs in the entry flow — they may want to mint a fresh home
         // bound to a different pro. Reuses the public component.
-        const hireMatch = match('/hire/:slug', path);
-        if (hireMatch) return <HireMeEntryPage slug={hireMatch.slug}/>;
-        const tokenMatch = match('/h/:token', path);
-        if (tokenMatch) return <MagicLinkReplyPage token={tokenMatch.token}/>;
+        if (FEATURE_HIRE_ME) {
+          const hireMatch = match('/hire/:slug', path);
+          if (hireMatch) return <HireMeEntryPage slug={hireMatch.slug}/>;
+          const tokenMatch = match('/h/:token', path);
+          if (tokenMatch) return <MagicLinkReplyPage token={tokenMatch.token}/>;
+        }
 
         // Hitting an auth page while signed in: bounce to /feed.
         if (path.startsWith('/auth/')) {

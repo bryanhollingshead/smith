@@ -21,6 +21,7 @@ import { requireAuth } from '../middleware.js';
 import { broadcastToUser } from './messages-ws.js';
 import { keysToUrls } from '../storage.js';
 import { notifyInquirerOfTargetReply } from '../hire-me.js';
+import { FEATURE_HIRE_ME } from '../flags.js';
 
 const router = Router();
 
@@ -306,7 +307,7 @@ router.post('/threads/:id/messages', requireAuth, async (req, res) => {
   // (no Smith account) is on the other side. Mint a fresh magic-link token
   // + email it. notifyInquirerOfTargetReply is fire-and-forget — never
   // throws, returns immediately on non-HireMe threads.
-  if (!peerId) {
+  if (!peerId && FEATURE_HIRE_ME) {
     const replierName = req.user
       ? `${req.user.first_name} ${req.user.last_name}`.trim()
       : 'A Smith member';

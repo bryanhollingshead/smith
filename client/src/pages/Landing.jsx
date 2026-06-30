@@ -21,16 +21,15 @@
 import React from 'react';
 import { B } from '../lib/theme.js';
 import { useRouter } from '../lib/router.jsx';
+import { FEATURE_HOMEOWNER } from '../lib/flags.js';
 
 // Centralized link targets so we can rewire navigation in one place if
-// these routes ever move.
+// these routes ever move. When the homeowner cluster is gated off, the
+// signup CTA bypasses the intent picker and goes straight to the
+// tradesman credentials page.
 const ROUTES = {
   signin:    '/auth/signin',
-  // `signup` used to point directly at the tradesman credentials page; we
-  // now fork through the intent picker at /auth/start. The fast-path
-  // accent link below the hero CTAs still goes straight to /auth/homeowner
-  // for users who already know they're hiring.
-  signup:    '/auth/start',
+  signup:    FEATURE_HOMEOWNER ? '/auth/start' : '/auth/signup',
   forgot:    '/auth/forgot',
   homeowner: '/auth/homeowner',
 };
@@ -156,20 +155,22 @@ function Hero({ navigate }) {
           {/* Homeowner entry — surfaced quietly under the trade-pitched
               hero CTAs until the landing page gets a full redesign that
               treats homeowners as a first-class audience. */}
-          <div style={{
-            marginTop: 18, fontSize: 13.5, color: B.dim,
-          }}>
-            Own a home?{' '}
-            <button
-              onClick={() => navigate(ROUTES.homeowner)}
-              style={{
-                background: 'transparent', border: 'none', padding: 0,
-                color: B.accent, fontWeight: 600, cursor: 'pointer',
-                fontSize: 13.5, fontFamily: 'inherit',
-              }}>
-              Claim your home →
-            </button>
-          </div>
+          {FEATURE_HOMEOWNER && (
+            <div style={{
+              marginTop: 18, fontSize: 13.5, color: B.dim,
+            }}>
+              Own a home?{' '}
+              <button
+                onClick={() => navigate(ROUTES.homeowner)}
+                style={{
+                  background: 'transparent', border: 'none', padding: 0,
+                  color: B.accent, fontWeight: 600, cursor: 'pointer',
+                  fontSize: 13.5, fontFamily: 'inherit',
+                }}>
+                Claim your home →
+              </button>
+            </div>
+          )}
           <div style={{
             marginTop: 32,
             fontFamily: "'IBM Plex Mono', ui-monospace, monospace",

@@ -79,6 +79,25 @@ services:
       - key: REQUIRE_EMAIL_VERIFICATION
         value: "false"
 
+      # Feature flags — prod default OFF, hides half-built surfaces from
+      # public traffic. Mirror VITE_FEATURE_* keys below (Vite reads its
+      # env from the same build environment). Flip to "true" + redeploy
+      # when the cluster is ready to ship. Local dev sets these to "true"
+      # in server/.env and client/.env (both gitignored). See journal:
+      # "Production cleanup — feature-flag gating".
+      - key: FEATURE_JOBS
+        value: "false"
+      - key: FEATURE_HOMEOWNER
+        value: "false"
+      - key: FEATURE_HIRE_ME
+        value: "false"
+      - key: VITE_FEATURE_JOBS
+        value: "false"
+      - key: VITE_FEATURE_HOMEOWNER
+        value: "false"
+      - key: VITE_FEATURE_HIRE_ME
+        value: "false"
+
       # Storage driver + R2 credentials.
       # The four R2_* values you set manually in the Render dashboard —
       # `sync: false` tells Render "don't overwrite, this is a secret I

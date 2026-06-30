@@ -23,6 +23,15 @@ import { publicUrl } from '../storage.js';
 import { parseResumeBuffer } from '../resume-parse.js';
 import { recomputeMatchesForUserAsync } from '../jobs/match.js';
 import { generateUniqueSlug } from '../slug.js';
+import { FEATURE_JOBS } from '../flags.js';
+
+// Per-handler gate for Jobs-cluster routes that share this router with the
+// core profile endpoints. The router stays mounted; these handlers 404
+// when FEATURE_JOBS is off.
+function requireJobs(_req, res, next) {
+  if (!FEATURE_JOBS) return res.status(404).json({ error: 'Not found' });
+  next();
+}
 
 const router = Router();
 
@@ -581,7 +590,7 @@ router.patch('/me/visibility', requireAuth, async (req, res) => {
 // / licenses / users tables — no migration needed for phase 1.
 
 // 1) Upload a resume PDF → return parsed pre-fill (does not persist).
-router.post('/me/resume/parse', requireAuth, (req, res, next) => {
+router.post('/me/resume/parse', requireJobs, requireAuth, (req, res, next) => {
   resumeUpload.single('file')(req, res, (err) => {
     if (err) {
       const msg = err.code === 'LIMIT_FILE_SIZE'
@@ -608,7 +617,7 @@ router.post('/me/resume/parse', requireAuth, (req, res, next) => {
 // the user advances. Body: { step: 'header'|'trades'|'skills'|'licenses'|'work_history', data: {...} }
 // Each step is idempotent for re-runs (trades/skills replace; licenses +
 // work_history append, deduping companies by name).
-router.post('/me/interview/step', requireAuth, async (req, res) => {
+router.post('/me/interview/step', requireJobs, requireAuth, async (req, res) => {
   const { step, data } = req.body || {};
   if (!step || typeof data !== 'object' || data === null) {
     return res.status(400).json({ error: 'step and data required' });
@@ -751,7 +760,7 @@ router.post('/me/interview/step', requireAuth, async (req, res) => {
 
 // 3) Resume render (HTML). Browser print → PDF. Defer real server-side PDF
 // generation (puppeteer/pdfkit) to a later phase; HTML covers the case.
-router.get('/me/resume', requireAuth, async (req, res) => {
+router.get('/me/resume', requireJobs, requireAuth, async (req, res) => {
   const profile = await loadProfile(req.userId, req.userId);
   if (!profile) return res.status(404).send('Not found');
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
@@ -760,7 +769,7 @@ router.get('/me/resume', requireAuth, async (req, res) => {
 
 // 4) Completeness — outcome-linked unlocks. Distinct from /me/strength's
 // vanity %: each item names a real product feature the user gets when done.
-router.get('/me/completeness', requireAuth, async (req, res) => {
+router.get('/me/completeness', requireJobs, requireAuth, async (req, res) => {
   const { rows } = await q(
     `SELECT
        (SELECT COUNT(*) FROM user_trades WHERE user_id = $1)::int AS trades,

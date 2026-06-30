@@ -18,6 +18,7 @@ import { Photo, SmithLogo } from '../components/Primitives.jsx';
 import { Icon } from '../components/Icon.jsx';
 import { useAuth } from '../lib/AuthContext.jsx';
 import { useRouter } from '../lib/router.jsx';
+import { FEATURE_HIRE_ME } from '../lib/flags.js';
 
 export function PublicProfilePage({ slug }) {
   const { user } = useAuth();
@@ -164,7 +165,7 @@ function PublicProfileHeader({ profile, isOwner, onHireMe }) {
               <span style={{ color: B.faint, fontSize: 12, fontStyle: 'italic' }}>
                 Your public profile
               </span>
-            ) : (
+            ) : FEATURE_HIRE_ME ? (
               <button onClick={onHireMe} style={{
                 background: B.accent, color: B.surface, border: 'none',
                 padding: '12px 24px', borderRadius: 100, fontSize: 14, fontWeight: 600,
@@ -172,7 +173,7 @@ function PublicProfileHeader({ profile, isOwner, onHireMe }) {
               }}>
                 <Icon name="hardhat" size={16} stroke={2}/> Hire {profile.first_name || 'me'}
               </button>
-            )}
+            ) : null}
           </div>
         </div>
       </div>

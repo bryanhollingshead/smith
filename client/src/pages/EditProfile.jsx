@@ -15,6 +15,7 @@ import { useRouter } from '../lib/router.jsx';
 import { useAuth } from '../lib/AuthContext.jsx';
 import { suggestSkills } from '../lib/trade-skills.js';
 import { STRUCTURE_TYPES, orderedJobTypeCategories, suggestJobsiteName } from '../lib/job-types.js';
+import { FEATURE_JOBS } from '../lib/flags.js';
 import { PhotoUpload } from '../components/PhotoUpload.jsx';
 import { SmithAvatar } from '../components/SmithAvatar.jsx';
 import { ResumeImportWizard } from '../components/ResumeImportWizard.jsx';
@@ -114,31 +115,35 @@ export function EditProfilePage() {
         </div>
 
         {/* Resume import CTA — fast path for users who already have a resume. */}
-        <div style={{
-          background: B.surface, border: `1px solid ${B.line}`, borderRadius: 6,
-          padding: '14px 18px', display: 'flex', alignItems: 'center',
-          justifyContent: 'space-between', gap: 12, marginBottom: 18,
-        }}>
-          <div>
-            <div style={{ fontSize: 14, fontWeight: 600, color: B.text }}>
-              Have a resume? Drop it in.
+        {FEATURE_JOBS && (
+          <>
+            <div style={{
+              background: B.surface, border: `1px solid ${B.line}`, borderRadius: 6,
+              padding: '14px 18px', display: 'flex', alignItems: 'center',
+              justifyContent: 'space-between', gap: 12, marginBottom: 18,
+            }}>
+              <div>
+                <div style={{ fontSize: 14, fontWeight: 600, color: B.text }}>
+                  Have a resume? Drop it in.
+                </div>
+                <div style={{ fontSize: 12, color: B.dim, marginTop: 2 }}>
+                  PDF upload pre-fills your trades, work history, credentials, and skills. Review before saving.
+                </div>
+              </div>
+              <button onClick={() => setWizardOpen(true)} style={{
+                background: B.text, color: B.surface, border: 'none',
+                padding: '9px 18px', borderRadius: 100, fontSize: 13, fontWeight: 600,
+                cursor: 'pointer', whiteSpace: 'nowrap',
+              }}>Import resume</button>
             </div>
-            <div style={{ fontSize: 12, color: B.dim, marginTop: 2 }}>
-              PDF upload pre-fills your trades, work history, credentials, and skills. Review before saving.
-            </div>
-          </div>
-          <button onClick={() => setWizardOpen(true)} style={{
-            background: B.text, color: B.surface, border: 'none',
-            padding: '9px 18px', borderRadius: 100, fontSize: 13, fontWeight: 600,
-            cursor: 'pointer', whiteSpace: 'nowrap',
-          }}>Import resume</button>
-        </div>
 
-        {wizardOpen && (
-          <ResumeImportWizard
-            onClose={() => setWizardOpen(false)}
-            onComplete={handleSaved}
-          />
+            {wizardOpen && (
+              <ResumeImportWizard
+                onClose={() => setWizardOpen(false)}
+                onComplete={handleSaved}
+              />
+            )}
+          </>
         )}
 
         <VisibilityCard
