@@ -4,7 +4,7 @@ A durable record of decisions made, work shipped, and what's still open.
 Paste this at the start of a session so Claude is caught up in 30 seconds.
 Update it at the end of each session.
 
-**Last updated:** 2026-06-20 (Signal feedback widget v1 — Linear-backed, PM vs customer source)
+**Last updated:** 2026-06-29 (Production cleanup — feature-flag gating + one-command local dev)
 **Live URL:** https://smith-h86n.onrender.com
 **Repo:** github.com/bryanhollingshead/smith
 **Sole dev:** Bryan Hollingshead (product background)
@@ -13,6 +13,211 @@ Update it at the end of each session.
 ---
 
 ## ✅ Done — recent wins (in roughly reverse chronological order)
+
+### Production cleanup — feature-flag gating + one-command local dev (2026-06-29)
+
+Half-built surfaces (Jobs module, homeowner mode + projects, Hire Me
+inbound) had drifted into prod alongside the working networking app.
+Goal: prod shows only the networking app; all unfinished work stays
+buildable locally behind env flags. Same session also fixed the
+two-terminal local-dev friction.
+
+**Phase 1 — one-command local startup.**
+- New root `package.json` (`npm run dev`) launches both services via
+  `concurrently` with labeled, color-coded output (`[server]` cyan,
+  `[client]` magenta). Ctrl+C kills both.
+- `scripts/dev.mjs` does the preflight: probes Postgres on
+  `localhost:5433`, prints a friendly "Postgres is down, start it
+  with…" if missing, then frees ports 4000 and 5173 so Vite never
+  drifts to 5174. The client invocation passes `--port 5173
+  --strictPort` so Vite fails loud instead of silently moving.
+- `npm run dev:stop` clears stuck processes.
+- One trap caught: `npm --prefix server run dev` keeps `cwd` at the
+  repo root, so `dotenv` misses `server/.env` and silently defaults
+  every env var (the FEATURE_* flags came back OFF on a "ON" local
+  boot). Fix: the orchestrator spawns each side with `cd server && npm
+  run dev` / `cd client && npm run dev …` so `dotenv` reads the right
+  file. Comment in `dev.mjs` records the gotcha.
+- Boot commands:
+  - `npm run dev` — start both services
+  - `npm run dev:stop` — clear stuck ports
+  - `npm run migrate` / `seed` / `reset` — proxy to server scripts
+- Local DB: `postgres://smith:smith@localhost:5433/smith` (30 seeded
+  users; Marcus Whitfield id=1 / `framer-2024-mt`).
+- README rewritten to lead with the one command.
+
+**Phase 2/3 — feature-flag gating, three clusters.**
+Pattern mirrors `REQUIRE_EMAIL_VERIFICATION` (server) and existing
+`VITE_*` vars (client). Each flag defaults OFF when the env var is
+unset, so a missing var in prod is safe.
+
+| Flag                     | Server var          | Client var                | Prod | Local |
+|--------------------------|---------------------|---------------------------|------|-------|
+| Jobs module              | `FEATURE_JOBS`      | `VITE_FEATURE_JOBS`       | OFF  | ON    |
+| Homeowner mode + projects| `FEATURE_HOMEOWNER` | `VITE_FEATURE_HOMEOWNER`  | OFF  | ON    |
+| Hire Me inbound          | `FEATURE_HIRE_ME`   | `VITE_FEATURE_HIRE_ME`    | OFF  | ON    |
+
+Implementation surfaces:
+
+- **Server** (`server/src/flags.js` + per-route gates):
+  - Router mounts gated in `index.js`: `jobsRouter` +
+    `applicationsRouter` (Jobs), `homesRouter` + `projectsRouter`
+    (Homeowner), `hireMeRouter` (Hire Me) — the routers never mount
+    when their cluster is off.
+  - `publicRouter` stays mounted regardless because `GET
+    /api/public/profiles/:slug` + `GET /api/public/search` are the
+    core boundary surfaces; the three hire-me handlers inside it use
+    a per-handler `requireHireMe` gate.
+  - `profilesRouter` stays mounted (it owns core profile reads); the
+    Jobs-cluster routes on it (`/me/resume*`, `/me/interview/step`,
+    `/me/completeness`) wear a per-handler `requireJobs` gate placed
+    **before** `requireAuth` so probes get a clean 404 even unauthed.
+    Same pattern for `PATCH /auth/me/mode` (homeowner) and the four
+    `/photos/project/*` routes (homeowner).
+  - `routes/auth.js` signup ignores `role` + `hiring_context` body
+    fields when `FEATURE_HOMEOWNER` is off, so every signup becomes a
+    tradesperson and the endpoint contract doesn't break for stale
+    clients.
+  - `notifyInquirerOfTargetReply` hook in `messages.js` is skipped
+    when `FEATURE_HIRE_ME` is off.
+  - The jobs-ingestion scheduler in `index.js` only arms when
+    `FEATURE_JOBS` is on (no Adzuna churn against an empty config
+    while the module is hidden).
+  - Boot log: `[flags] jobs=… homeowner=… hire_me=…`.
+
+- **Client** (`client/src/lib/flags.js` + per-render gates):
+  - `App.jsx` gates the route table: `/auth/start`, `/auth/homeowner`,
+    `/mode/setup-*`, `/home/*`, `/project/*`, the HomeownerShell fork
+    (Homeowner); `/jobs` (Jobs); `/inquiries`, `/hire/:slug`, `/h/:token`
+    (Hire Me).
+  - `TopNav` filters Jobs + Inquiries out of the nav items array;
+    `<ModeToggle>` is hidden when Homeowner is off.
+  - `PublicProfile` renders nothing in place of the Hire Me CTA when
+    Hire Me is off — the profile view, About, Where I've worked, and
+    credentials all render exactly as before.
+  - `EditProfile` hides the "Have a resume? Drop it in." banner and
+    the `ResumeImportWizard` modal when Jobs is off.
+  - `Profile` hides `ProfileCompletenessCard` when Jobs is off.
+  - `Landing` ROUTES.signup auto-falls back to `/auth/signup` (skipping
+    the intent picker) when Homeowner is off; the "Own a home? Claim
+    your home →" accent link is hidden too.
+
+  Note on bundle: my flag access uses computed property lookup
+  (`import.meta.env[name]`) which Vite can't constant-fold, so the
+  gated component branches stay in the bundle as dead code — runtime
+  gating still works, but a bundle inspector would see template
+  strings like `Hire ` / `Have a resume?`. Acceptable for now; revisit
+  if bundle size becomes a concern.
+
+**Boundary preserved end-to-end** (the line Bryan called out):
+- `GET /api/public/profiles/:slug` — always 200, public profile view
+  renders fully even with Hire Me off.
+- `GET /api/public/search` — always 200, no UI surface today but
+  future SEO + external integrations depend on it.
+- `PATCH /api/profiles/me/visibility` + `VisibilityCard` on
+  EditProfile — users can still toggle their profile public; they
+  just won't have a Hire Me CTA on it until the flag flips.
+
+**Local + prod verified.**
+- Local OFF (FEATURE_* unset): all gated routes 404, `/api/health`
+  200, public profile + search 200, `POST /api/public/hire-me/:slug`
+  404, `PATCH /auth/me/mode` 404.
+- Local ON (server/.env + client/.env flags=true): all gated routes
+  401 (auth gate, route mounted), `POST /api/public/hire-me/:slug`
+  400 (validation), public profile 200.
+- Prod post-deploy (Render auto-applied render.yaml flags=false): same
+  matrix as local OFF. Bundle inspection confirms
+  `VITE_FEATURE_*:"false"` inlined into the SPA. New bundle hash
+  observed (`index-Bqpj_dTd.js`); previous bundle was `index-CpJn7OT8.js`.
+
+**Files changed:** `server/src/flags.js` (new), `server/src/index.js`,
+`server/src/routes/{auth,profiles,public,photos,messages}.js`,
+`client/src/lib/flags.js` (new), `client/src/App.jsx`,
+`client/src/components/TopNav.jsx`,
+`client/src/pages/{Landing,PublicProfile,Profile,EditProfile}.jsx`,
+`render.yaml`, `server/.env.example`, `client/.env.example`,
+`package.json` (new root), `scripts/dev.mjs` (new),
+`scripts/dev-stop.mjs` (new), `README.md`. Commit `15791ed`.
+
+**What flipping a flag back ON looks like** (e.g. when Jobs is ready):
+1. Set `FEATURE_JOBS=true` and `VITE_FEATURE_JOBS=true` in the Render
+   dashboard (or `render.yaml` and let the next deploy pick them up).
+2. Trigger a deploy — the server will boot with the router mounted
+   and the scheduler armed; the client bundle will rebuild with the
+   conditional resolving to true; the nav item reappears.
+3. No code change, no migration. The migrations for each cluster are
+   already applied and idempotent.
+
+**Note on the Anthropic key (still pending):** `ANTHROPIC_API_KEY`
+isn't set on Render yet. The spec flow's SOW generator runs the stub
+deterministically; the Jobs assisted-apply LLM path falls through to
+the template draft. Both work but are stiffer than the real model
+output. Wire the key + redeploy when ready — the flags + the SOW
+schema were designed so this drops in with no code change beyond the
+generator function.
+
+### Forward-looking decisions captured from prior planning sessions
+
+These weren't ready to ship in this commit but belong in the journal
+so they don't get lost.
+
+**One account / two modes — Homeowner display label.** Already shipped
+(see "One account, two modes" entry below) but worth re-stating
+because it's the substrate the gating boundary respects:
+`users.hiring_context` is the display-label driver:
+`own_home → "Homeowner"`, `property_manager → "Property manager"`.
+Never stored as a label string; only as the enum. Everywhere it
+appears on screen flows through `lib/mode.js` helpers. When the
+homeowner cluster ungates, the toggle pill and the rail-footer card
+both pick up the right label without any per-surface conditional.
+
+**The signup fork.** Same direction: `/auth/start` is the intent
+picker (`I'm a tradesman` / `I'm hiring`). With `FEATURE_HOMEOWNER`
+off, Landing's signup CTA bypasses the picker and lands directly at
+`/auth/signup` so visitors aren't shown an option they can't act on.
+When homeowner ungates, no Landing-page change is needed — the const
+in `Landing.jsx` reads the flag.
+
+**Mobile strategy — Capacitor first, Android first, bundle mode.**
+Not built yet. The plan when it lands:
+- **Capacitor** (not React Native, not Expo) because Smith's UI is
+  already a Vite-built SPA — Capacitor wraps the same bundle and
+  drops it onto Android + iOS with native shell + plugins. Avoids
+  rewriting any of the existing screens.
+- **Android first.** The trades skew Android-heavy (job-site phones,
+  pre-paid Samsungs, rugged-case Note clones). Closes the gap to the
+  actual user before the iOS polish loop.
+- **Bundle mode.** Ship the SPA as a bundled asset inside the
+  Capacitor container (not loading via WebView from `smith.app`), so
+  the app works offline-first and updates ship via Play Store rather
+  than at-the-moment-of-launch network fetches. Live-update via
+  Capacitor's Live Updates plugin once the basic shell is stable.
+- **Push notifications via `@capacitor-firebase/messaging`** — FCM
+  for Android (free, native), with the iOS path landing on the same
+  plugin once we add an Apple push key. Server side maps a single
+  `device_tokens` table per user; existing `notifications` rows fan
+  out to push when the user has a token + permission. None of this
+  exists yet — flagged for the mobile sprint.
+
+**Jobsite photo capture probe — leading indicator for the CPM-mobile
+thesis.** Not in code today (`grep` of `client/src`, `server/src`,
+`server/migrations` for `cpm|capture|geolocation|getUserMedia` came
+back empty). The probe when it lands:
+- Camera (via `getUserMedia` on web, `@capacitor/camera` on mobile)
+  + geolocation (`navigator.geolocation` / `@capacitor/geolocation`)
+  + a just-in-time DB record (jobsite, timestamp, lat/lng, photo
+  ref) when a tradesperson taps "I'm on site" or similar.
+- **Instrumented from day one** to track field-capture volume during
+  work hours (8am–6pm local). If usage is non-zero during work hours
+  in the first weeks, the CPM-mobile thesis (Smith becomes the
+  in-pocket project-management tool, not just the after-hours
+  network) has signal worth pursuing. If usage is dead during work
+  hours and only fires when the tradesperson is at their kitchen
+  table, the network-only positioning holds and the CPM build can
+  be deferred.
+- Practically: this is the next surface to gate behind a fourth flag
+  (`FEATURE_FIELD_CAPTURE` probably) when it ships, so the probe can
+  go live for early adopters without touching prod for everyone else.
 
 ### Signal feedback widget v1 — Linear-backed (2026-06-20)
 First piece of the Signal layer: a floating feedback affordance available
