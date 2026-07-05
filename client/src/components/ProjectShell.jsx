@@ -50,10 +50,18 @@ export function ProjectShell({
   children,
 }) {
   const { navigate } = useRouter();
+  const { user } = useAuth();
   const [collapsed, setCollapsed] = useState(collapsedProp);
   const railWidth = collapsed ? 64 : 280;
   const roleData = roleDataProp || DEFAULT_ROLES[role] || DEFAULT_ROLES.tradesperson;
   const proj = project || { name: '—', addr: '', cover: 'frame', phase: '', color: B.accent };
+
+  // Suppress the tradesman↔homeowner mode toggle for pure homeowners — they
+  // don't know about (or want) the tradesman side. Anyone who has a
+  // tradesman profile keeps the toggle so they can flip between modes.
+  // Doesn't affect the roleDataProp static-card path used by the in-tradesman
+  // GC/Sub view.
+  const hideModeToggle = role === 'homeowner' && !user?.profiles?.tradesman;
 
   return (
     <div style={{ background: B.bg, color: B.text, minHeight: '100vh', display: 'flex' }}>
@@ -241,48 +249,52 @@ export function ProjectShell({
         {/* Footer — mode toggle (Tradesman ↔ Homeowner). Replaces the old
             static "You're viewing as" card. Caller can still pass roleData
             to override the visual (used for in-tradesman GC/Sub axis), but
-            the default is the live mode toggle. */}
-        <div style={{
-          borderTop: `1px solid ${B.line}`,
-          padding: collapsed ? '14px 8px' : '14px 18px',
-        }}>
-          {!collapsed && (
-            roleDataProp ? (
-              // Caller explicitly handed us a static role card (in-tradesman
-              // GC/Sub view, etc) — render the legacy card, no toggle.
-              <>
-                <div style={{
-                  display: 'flex', alignItems: 'center', gap: 10,
-                  padding: '10px 12px', background: B.bg, border: `1px solid ${B.line}`,
-                  borderRadius: 4, marginBottom: 10,
-                }}>
+            the default is the live mode toggle. Suppressed entirely for
+            pure homeowners so they aren't pushed toward the tradesman
+            side they've never opted into. */}
+        {!hideModeToggle && (
+          <div style={{
+            borderTop: `1px solid ${B.line}`,
+            padding: collapsed ? '14px 8px' : '14px 18px',
+          }}>
+            {!collapsed && (
+              roleDataProp ? (
+                // Caller explicitly handed us a static role card (in-tradesman
+                // GC/Sub view, etc) — render the legacy card, no toggle.
+                <>
                   <div style={{
-                    width: 28, height: 28, borderRadius: '50%',
-                    background: roleData.color, color: '#fff',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                    display: 'flex', alignItems: 'center', gap: 10,
+                    padding: '10px 12px', background: B.bg, border: `1px solid ${B.line}`,
+                    borderRadius: 4, marginBottom: 10,
                   }}>
-                    <Icon name={roleData.icon} size={13}/>
+                    <div style={{
+                      width: 28, height: 28, borderRadius: '50%',
+                      background: roleData.color, color: '#fff',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                    }}>
+                      <Icon name={roleData.icon} size={13}/>
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ color: B.faint, fontSize: 10, fontStyle: 'italic' }}>You're viewing as</div>
+                      <div style={{ color: B.text, fontSize: 12.5, fontWeight: 600 }}>{roleData.label}</div>
+                    </div>
                   </div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ color: B.faint, fontSize: 10, fontStyle: 'italic' }}>You're viewing as</div>
-                    <div style={{ color: B.text, fontSize: 12.5, fontWeight: 600 }}>{roleData.label}</div>
-                  </div>
-                </div>
-              </>
-            ) : (
-              <ModeToggle variant="card"/>
-            )
-          )}
-          {collapsed && (
-            <button onClick={() => setCollapsed(false)} title={roleData.label} style={{
-              width: 36, height: 36, margin: '0 auto', borderRadius: '50%',
-              background: roleData.color, color: '#fff', border: 'none', cursor: 'pointer',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-            }}>
-              <Icon name={roleData.icon} size={14}/>
-            </button>
-          )}
-        </div>
+                </>
+              ) : (
+                <ModeToggle variant="card"/>
+              )
+            )}
+            {collapsed && (
+              <button onClick={() => setCollapsed(false)} title={roleData.label} style={{
+                width: 36, height: 36, margin: '0 auto', borderRadius: '50%',
+                background: roleData.color, color: '#fff', border: 'none', cursor: 'pointer',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}>
+                <Icon name={roleData.icon} size={14}/>
+              </button>
+            )}
+          </div>
+        )}
       </aside>
 
       {/* ── Main column ───────────────────────────────────────────────── */}
