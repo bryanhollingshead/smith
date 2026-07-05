@@ -201,11 +201,18 @@ export function HomeownerShell() {
   } else if (navKey === 'projects') {
     body = <ProjectsList home={home} navigate={navigate}/>;
   } else if (path === '/' || path === '/feed') {
-    // Tradesman default route in homeowner mode → redirect to seed dashboard.
+    // Tradesman default routes in homeowner mode — decide the destination
+    // based on whether the seed home has been confirmed. Fresh signups land
+    // here after email verification (see ConfirmEmail post-verify redirect)
+    // with confirmed_at still null, and belong on the "Is this your home?"
+    // screen; returning homeowners belong on the seed dashboard.
     if (loading) {
       body = <Loading/>;
     } else if (home) {
-      setTimeout(() => navigate(`/home/${home.id}`, { replace: true }), 0);
+      const target = home.confirmed_at
+        ? `/home/${home.id}`
+        : `/home/${home.id}/confirm`;
+      setTimeout(() => navigate(target, { replace: true }), 0);
       body = <Loading/>;
     } else {
       // No home yet — homeowner mode without a profile shouldn't happen,
@@ -213,6 +220,13 @@ export function HomeownerShell() {
       setTimeout(() => navigate('/mode/setup-homeowner', { replace: true }), 0);
       body = <Loading/>;
     }
+  } else if (path === '/onboarding' || path.startsWith('/auth/')) {
+    // Tradesman-shaped URLs that a homeowner shouldn't ever be looking at —
+    // usually the tail end of a signup/verify flow that hardcoded a
+    // tradesman path. Bounce them to '/' so the home-based routing above
+    // kicks in.
+    setTimeout(() => navigate('/', { replace: true }), 0);
+    body = <Loading/>;
   } else {
     body = <HomeownerLost path={path}/>;
   }

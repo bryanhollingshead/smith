@@ -7,11 +7,14 @@
 // Port of smith-project-shell.jsx from the design handoff, adapted to our
 // component library (Icon / Avatar / Wordmark / theme) and our router.
 
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { B } from '../lib/theme.js';
 import { Icon } from './Icon.jsx';
 import { Avatar, Photo } from './Primitives.jsx';
+import { SmithAvatar } from './SmithAvatar.jsx';
 import { useRouter } from '../lib/router.jsx';
+import { useAuth } from '../lib/AuthContext.jsx';
+import { api } from '../lib/api.js';
 import { ModeToggle } from './ModeToggle.jsx';
 
 // The header wordmark for the workspace chrome. Direction B = upright
@@ -325,7 +328,7 @@ export function ProjectShell({
             }}/>
           </button>
           {action}
-          <Avatar tone={role === 'homeowner' ? 'cream' : 'wood'} initials="·" size={36}/>
+          <UserMenu role={role}/>
         </header>
 
         <div style={{ flex: 1, overflow: 'auto' }}>
@@ -334,4 +337,84 @@ export function ProjectShell({
       </div>
     </div>
   );
+}
+
+// Avatar + dropdown in the shell header. Mirrors TopNav's avatar menu so
+// signing out is available from homeowner-mode screens too (BRY-15).
+function UserMenu({ role }) {
+  const { user, signOut } = useAuth();
+  const { navigate } = useRouter();
+  const [open, setOpen] = useState(false);
+  const [avatarUrls, setAvatarUrls] = useState(null);
+  const ref = useRef(null);
+
+  useEffect(() => {
+    if (!user?.id) { setAvatarUrls(null); return; }
+    let cancelled = false;
+    api.get('/profiles/me')
+      .then(d => { if (!cancelled) setAvatarUrls(d.profile?.avatar_urls || null); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [user?.id, user?.avatar_url, user?.updated_at]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, [open]);
+
+  return (
+    <div ref={ref} style={{ position: 'relative' }}>
+      <button
+        onClick={() => setOpen(o => !o)}
+        style={{
+          padding: 0, background: 'transparent', border: 'none', cursor: 'pointer',
+          borderRadius: '50%',
+        }}>
+        <SmithAvatar
+          urls={avatarUrls}
+          initials={initialsOf(user)}
+          size={36}
+          tone={user?.avatar_tone || (role === 'homeowner' ? 'cream' : 'wood')}
+        />
+      </button>
+      {open && (
+        <div className="fade-in" style={{
+          position: 'absolute', top: '100%', right: 0, marginTop: 8,
+          background: B.surface, border: `1px solid ${B.line}`, borderRadius: 4,
+          minWidth: 200, padding: 6, boxShadow: '0 4px 24px rgba(0,0,0,0.08)',
+          zIndex: 20,
+        }}>
+          <MenuItem icon="user" onClick={() => { setOpen(false); navigate('/profile'); }}>My profile</MenuItem>
+          <MenuItem icon="edit" onClick={() => { setOpen(false); navigate('/profile/edit'); }}>Edit profile</MenuItem>
+          <div style={{ height: 1, background: B.line, margin: '6px 0' }}/>
+          <MenuItem icon="logout" onClick={() => { setOpen(false); signOut(); }}>Sign out</MenuItem>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MenuItem({ icon, onClick, children }) {
+  return (
+    <button onClick={onClick} style={{
+      width: '100%', display: 'flex', alignItems: 'center', gap: 10,
+      padding: '10px 12px', background: 'transparent', border: 'none',
+      color: B.text, fontSize: 13, fontWeight: 500, textAlign: 'left',
+      borderRadius: 4, cursor: 'pointer',
+    }}
+    onMouseEnter={e => e.currentTarget.style.background = B.bg}
+    onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+      <Icon name={icon} size={15} style={{ color: B.dim }}/>
+      {children}
+    </button>
+  );
+}
+
+function initialsOf(user) {
+  if (!user) return '·';
+  const a = user.first_name?.[0] || '';
+  const b = user.last_name?.[0] || '';
+  return (a + b).toUpperCase() || (user.email?.[0] || '·').toUpperCase();
 }

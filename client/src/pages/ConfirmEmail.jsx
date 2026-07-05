@@ -22,9 +22,12 @@ export function ConfirmEmailPage() {
   const [busy, setBusy] = useState(false);
   const refs = useRef([]);
 
-  // If they're already verified, send them onward. Otherwise let them confirm.
+  // If they're already verified, send them onward. Tradespeople go to the
+  // trade-picker onboarding; homeowners skip it (server stamps
+  // onboarding_done on homeowner signup) and let the shell route them to
+  // the "Is this your home?" screen or seed dashboard.
   useEffect(() => {
-    if (user && user.email_verified) navigate('/onboarding', { replace: true });
+    if (user && user.email_verified) navigate(nextPathForRole(user), { replace: true });
   }, [user, navigate]);
 
   const code = digits.join('');
@@ -61,7 +64,7 @@ export function ConfirmEmailPage() {
     try {
       await api.post('/auth/verify-email', { code });
       await refresh();
-      navigate('/onboarding', { replace: true });
+      navigate(nextPathForRole(user), { replace: true });
     } catch (e) {
       setError(e.data?.error || 'That code didn\'t work. Try again.');
     } finally {
@@ -164,4 +167,11 @@ export function ConfirmEmailPage() {
       </div>
     </AuthShell>
   );
+}
+
+// Homeowners skip trade-picker onboarding — the shell (HomeownerShell) picks
+// up '/' and routes them to the "Is this your home?" screen or the seed
+// dashboard depending on whether the home is confirmed yet.
+function nextPathForRole(user) {
+  return user?.role === 'homeowner' ? '/' : '/onboarding';
 }
